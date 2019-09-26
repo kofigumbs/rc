@@ -50,7 +50,7 @@ star multiplier ( x, y ) =
     in
     Svg.path
         [ fill "transparent"
-        , stroke "black"
+        , stroke "orange"
         , strokeWidth <| String.fromFloat (multiplier * 0.2)
         , d <|
             ("M "
