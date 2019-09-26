@@ -1,0 +1,11 @@
+{
+  "name": "",
+  "description": "",
+  "version": "1.0.0",
+  "repository": "github.com/hkgumbs/trainervision.git",
+  "author": "",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "elm": "0.19.0-no-deps"
+  }
+}
