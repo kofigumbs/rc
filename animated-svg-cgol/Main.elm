@@ -15,12 +15,12 @@ import Time
 
 blinker : List Cell
 blinker =
-    parse [ "OOO" ]
+    parse 1 [ "OOO" ]
 
 
 smallSpaceship : List Cell
 smallSpaceship =
-    parse
+    parse 1
         [ "OOO"
         , ".O."
         , "..O"
@@ -29,7 +29,7 @@ smallSpaceship =
 
 middleSpaceship : List Cell
 middleSpaceship =
-    parse
+    parse 2
         [ "..O"
         , "O...O"
         , ".....O"
@@ -40,7 +40,7 @@ middleSpaceship =
 
 gun : List Cell
 gun =
-    parse
+    parse 17
         [ "........................O"
         , "......................O.O"
         , "............OO......OO............OO"
@@ -53,8 +53,8 @@ gun =
         ]
 
 
-parse : List String -> List Cell
-parse raw =
+parse : Int -> List String -> List Cell
+parse xOffset raw =
     let
         middle =
             List.length raw // 2
@@ -63,7 +63,7 @@ parse raw =
             if char == '.' then
                 Nothing
             else
-                Just ( -middle + y, x )
+                Just ( -middle + y, x - xOffset )
 
         unRaw y line =
             String.toList line
@@ -78,7 +78,8 @@ type alias Model =
     , current : World
     , delta : Float
     , stepDuration : Float
-    , shape : Glyph.Shape
+    , glyph : Glyph.Shape
+    , curve : Curve.Shape
     }
 
 
@@ -96,7 +97,8 @@ init =
     , current = Set.fromList middleSpaceship
     , delta = 0
     , stepDuration = 450
-    , shape = Glyph.Dot
+    , glyph = Glyph.Dot
+    , curve = Curve.Linear
     }
 
 
@@ -110,19 +112,26 @@ view model =
             northwestSourtheastCorners 5 model.current
     in
     Html.main_ []
-        [ Html.input
-            [ Html.Attributes.type_ "range"
-            , Html.Attributes.min "16"
-            , Html.Attributes.max "1000"
-            , Html.Attributes.style "direction" "rtl"
-            , Html.Events.onInput SetStepDuration
-            , Html.Attributes.value (String.fromFloat model.stepDuration)
-            ]
-            []
+        [ Html.node "style" [] [ text styles ]
         , Html.div []
-            [ Html.button [ Html.Events.onClick (SetShape Glyph.Dot) ] [ text "Dot" ]
-            , Html.button [ Html.Events.onClick (SetShape Glyph.Star) ] [ text "Star" ]
-            , Html.button [ Html.Events.onClick (SetShape Glyph.Box) ] [ text "Box" ]
+            [ Html.input
+                [ Html.Attributes.type_ "range"
+                , Html.Attributes.min "16"
+                , Html.Attributes.max "1000"
+                , Html.Attributes.style "direction" "rtl"
+                , Html.Events.onInput SetStepDuration
+                , Html.Attributes.value (String.fromFloat model.stepDuration)
+                ]
+                []
+            ]
+        , Html.div []
+            [ Html.button [ Html.Events.onClick (SetCurve Curve.Linear) ] [ text "Linear" ]
+            , Html.button [ Html.Events.onClick (SetCurve Curve.CubicBezier) ] [ text "Cubic Bezier" ]
+            ]
+        , Html.div []
+            [ Html.button [ Html.Events.onClick (SetGlyph Glyph.Dot) ] [ text "Dot" ]
+            , Html.button [ Html.Events.onClick (SetGlyph Glyph.Star) ] [ text "Star" ]
+            , Html.button [ Html.Events.onClick (SetGlyph Glyph.Box) ] [ text "Box" ]
             ]
         , Html.div []
             [ Html.button [ Html.Events.onClick (SetPattern blinker) ] [ text "Blinker" ]
@@ -132,10 +141,10 @@ view model =
             ]
         , svg
             [ viewBox
-                (cubicBezier model oldFirstX newFirstX)
-                (cubicBezier model oldFirstY newFirstY)
-                (cubicBezier model (oldLastX - oldFirstX) (newLastX - newFirstX))
-                (cubicBezier model (oldLastY - oldFirstY) (newLastY - newFirstY))
+                (withCurve model oldFirstX newFirstX)
+                (withCurve model oldFirstY newFirstY)
+                (withCurve model (oldLastX - oldFirstX) (newLastX - newFirstX))
+                (withCurve model (oldLastY - oldFirstY) (newLastY - newFirstY))
             ]
             (grid (space model) (List.range newFirstX newLastX) (List.range newFirstY newLastY))
         ]
@@ -151,11 +160,11 @@ space model cell =
             alive model.previous cell
     in
     if nowAlive && wasAlive {- STAYING ALIIIIVE -} then
-        Just <| Glyph.view model.shape 1 cell
+        Just <| Glyph.view model.glyph 1 cell
     else if nowAlive {- REVIVING -} then
-        Just <| Glyph.view model.shape (cubicBezier model 0 1) cell
+        Just <| Glyph.view model.glyph (withCurve model 0 1) cell
     else if wasAlive {- DYING -} then
-        Just <| Glyph.view model.shape (cubicBezier model 1 0) cell
+        Just <| Glyph.view model.glyph (withCurve model 1 0) cell
     else
         Nothing
 
@@ -163,7 +172,8 @@ space model cell =
 type Msg
     = NewAnimationFrameDelta Float
     | SetPattern (List Cell)
-    | SetShape Glyph.Shape
+    | SetGlyph Glyph.Shape
+    | SetCurve Curve.Shape
     | SetStepDuration String
     | Next
 
@@ -177,8 +187,11 @@ update msg model =
         SetPattern cells ->
             { model | previous = Set.empty, current = Set.fromList cells }
 
-        SetShape shape ->
-            { model | shape = shape }
+        SetGlyph glyph ->
+            { model | glyph = glyph }
+
+        SetCurve curve ->
+            { model | curve = curve }
 
         SetStepDuration raw ->
             case String.toFloat raw of
@@ -201,7 +214,8 @@ update msg model =
             , previous = model.current
             , delta = 0
             , stepDuration = model.stepDuration
-            , shape = model.shape
+            , glyph = model.glyph
+            , curve = model.curve
             }
 
 
@@ -258,9 +272,12 @@ northwestSourtheastCorners padding world =
     )
 
 
-cubicBezier : Model -> Int -> Int -> Float
-cubicBezier model from to =
-    Curve.cubicBezier (clamp 0 1 (model.delta / model.stepDuration)) (toFloat from) (toFloat to)
+withCurve : Model -> Int -> Int -> Float
+withCurve model from to =
+    Curve.value model.curve
+        (clamp 0 1 (model.delta / model.stepDuration))
+        (toFloat from)
+        (toFloat to)
 
 
 grid : (Cell -> Maybe a) -> List Int -> List Int -> List a
@@ -291,6 +308,26 @@ last list =
 
         _ :: rest ->
             last rest
+
+
+styles : String
+styles =
+    """
+    html, body {
+        margin:0;
+        padding:0
+    }
+    main {
+        height:100vh;
+        width:100%;
+        display:flex;
+        display:flex;
+        flex-direction:column;
+    }
+    svg {
+        flex: 1
+    }
+    """
 
 
 

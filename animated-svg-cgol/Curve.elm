@@ -1,6 +1,16 @@
-module Curve exposing (cubicBezier)
+module Curve exposing (Shape(..), value)
 
 -- https://en.wikipedia.org/wiki/Bézier_curve
+
+
+type Shape
+    = Linear
+    | CubicBezier
+
+
+linear : Float -> Float -> Float -> Float
+linear t p0 p1 =
+    p0 + t * (p1 - p0)
 
 
 controlPoint1 =
@@ -9,6 +19,16 @@ controlPoint1 =
 
 controlPoint2 =
     0.75
+
+
+value : Shape -> Float -> Float -> Float -> Float
+value shape =
+    case shape of
+        Linear ->
+            linear
+
+        CubicBezier ->
+            cubicBezier
 
 
 cubicBezier : Float -> Float -> Float -> Float
