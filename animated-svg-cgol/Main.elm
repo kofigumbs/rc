@@ -15,68 +15,62 @@ import Time
 
 blinker : List Cell
 blinker =
-    [ ( -1, 0 )
-    , ( 0, 0 )
-    , ( 1, 0 )
-    ]
+    parse [ "OOO" ]
 
 
 smallSpaceship : List Cell
 smallSpaceship =
-    [ ( -1, -1 )
-    , ( 0, -1 )
-    , ( 1, -1 )
-    , ( 1, 0 )
-    , ( 0, 1 )
-    ]
+    parse
+        [ "OOO"
+        , ".O."
+        , "..O"
+        ]
 
 
 middleSpaceship : List Cell
 middleSpaceship =
-    [ ( -2, 1 )
-    , ( -1, 2 )
-    , ( 0, 2 )
-    , ( 1, 2 )
-    , ( 2, 2 )
-    , ( 3, 2 )
-    , ( 3, 1 )
-    , ( 3, 0 )
-    , ( 2, -1 )
-    , ( 0, -2 )
-    , ( -2, -1 )
-    ]
+    parse
+        [ "..O"
+        , "O...O"
+        , ".....O"
+        , "O....O"
+        , ".OOOOO"
+        ]
 
 
 gun : List Cell
 gun =
-    let
-        raw =
-            [ "........................O"
-            , "......................O.O"
-            , "............OO......OO............OO"
-            , "...........O...O....OO............OO"
-            , "OO........O.....O...OO"
-            , "OO........O...O.OO....O.O"
-            , "..........O.....O.......O"
-            , "...........O...O"
-            , "............OO"
-            ]
+    parse
+        [ "........................O"
+        , "......................O.O"
+        , "............OO......OO............OO"
+        , "...........O...O....OO............OO"
+        , "OO........O.....O...OO"
+        , "OO........O...O.OO....O.O"
+        , "..........O.....O.......O"
+        , "...........O...O"
+        , "............OO"
+        ]
 
+
+parse : List String -> List Cell
+parse raw =
+    let
         middle =
             List.length raw // 2
 
+        dotIsDead x y char =
+            if char == '.' then
+                Nothing
+            else
+                Just ( -middle + y, x )
+
         unRaw y line =
             String.toList line
-                |> List.indexedMap
-                    (\x char ->
-                        if char == '.' then
-                            Nothing
-                        else
-                            Just ( -middle + y, x )
-                    )
+                |> List.indexedMap (\x char -> dotIsDead x y char)
                 |> List.filterMap identity
     in
-    List.concat <| List.indexedMap unRaw raw
+    List.concat (List.indexedMap unRaw raw)
 
 
 type alias Model =
@@ -99,7 +93,7 @@ type alias Cell =
 init : Model
 init =
     { previous = Set.empty
-    , current = Set.fromList gun
+    , current = Set.fromList middleSpaceship
     , delta = 0
     , stepDuration = 450
     , shape = Glyph.Dot
@@ -120,21 +114,21 @@ view model =
             [ Html.Attributes.type_ "range"
             , Html.Attributes.min "16"
             , Html.Attributes.max "1000"
-            , Html.Attributes.style "width" "100%"
             , Html.Attributes.style "direction" "rtl"
             , Html.Events.onInput SetStepDuration
             , Html.Attributes.value (String.fromFloat model.stepDuration)
             ]
             []
-        , Html.div
-            [ Html.Attributes.attribute "style" """
-                display:flex;
-                flex-direction:row;
-                justify-content:space-between;"""
-            ]
+        , Html.div []
             [ Html.button [ Html.Events.onClick (SetShape Glyph.Dot) ] [ text "Dot" ]
             , Html.button [ Html.Events.onClick (SetShape Glyph.Star) ] [ text "Star" ]
             , Html.button [ Html.Events.onClick (SetShape Glyph.Box) ] [ text "Box" ]
+            ]
+        , Html.div []
+            [ Html.button [ Html.Events.onClick (SetPattern blinker) ] [ text "Blinker" ]
+            , Html.button [ Html.Events.onClick (SetPattern gun) ] [ text "Gun" ]
+            , Html.button [ Html.Events.onClick (SetPattern middleSpaceship) ] [ text "Middle Spaceship" ]
+            , Html.button [ Html.Events.onClick (SetPattern smallSpaceship) ] [ text "Small Spaceship?" ]
             ]
         , svg
             [ viewBox
@@ -168,6 +162,7 @@ space model cell =
 
 type Msg
     = NewAnimationFrameDelta Float
+    | SetPattern (List Cell)
     | SetShape Glyph.Shape
     | SetStepDuration String
     | Next
@@ -178,6 +173,9 @@ update msg model =
     case msg of
         NewAnimationFrameDelta value ->
             { model | delta = value + model.delta }
+
+        SetPattern cells ->
+            { model | previous = Set.empty, current = Set.fromList cells }
 
         SetShape shape ->
             { model | shape = shape }
