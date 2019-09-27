@@ -17,159 +17,137 @@ type Shape
 
 
 view : Shape -> Float -> ( Int, Int ) -> Svg msg
-view shape =
-    case shape of
-        Dot ->
-            dot
+view shape multiplier ( x, y ) =
+    let
+        f =
+            case shape of
+                Dot ->
+                    dot
 
-        Star ->
-            star
+                Star ->
+                    star
 
-        Box ->
-            box
+                Box ->
+                    box
 
-        Pedal ->
-            pedal
+                Pedal ->
+                    pedal
+    in
+    f multiplier (toFloat x) (toFloat y)
 
 
-dot : Float -> ( Int, Int ) -> Svg msg
-dot multiplier ( x, y ) =
+dot : Float -> Float -> Float -> Svg msg
+dot multiplier x y =
     circle
         [ fill "black"
-        , cx (String.fromInt x)
-        , cy (String.fromInt y)
-        , r (String.fromFloat (size * multiplier))
+        , cx (decimal x)
+        , cy (decimal y)
+        , r (decimal (size * multiplier))
         ]
         []
 
 
-star : Float -> ( Int, Int ) -> Svg msg
-star multiplier ( x, y ) =
+star : Float -> Float -> Float -> Svg msg
+star multiplier x y =
     let
         center =
-            String.fromFloat (toFloat x)
-                ++ " "
-                ++ String.fromFloat (toFloat y)
-                ++ " "
+            decimal x ++ " " ++ decimal y ++ " "
     in
     Svg.path
         [ fill "transparent"
         , stroke "orange"
-        , strokeWidth <| String.fromFloat (multiplier * 0.2)
+        , strokeWidth <| decimal (multiplier * 0.2)
         , d <|
-            ("M "
-                ++ String.fromFloat (toFloat x - size)
-                ++ " "
-                ++ String.fromFloat (toFloat y)
-            )
-                ++ ("Q "
-                        ++ center
-                        ++ String.fromFloat (toFloat x)
-                        ++ " "
-                        ++ String.fromFloat (toFloat y - size)
-                   )
-                ++ ("Q "
-                        ++ center
-                        ++ String.fromFloat (toFloat x + size)
-                        ++ " "
-                        ++ String.fromFloat (toFloat y)
-                   )
-                ++ ("Q "
-                        ++ center
-                        ++ String.fromFloat (toFloat x)
-                        ++ " "
-                        ++ String.fromFloat (toFloat y + size)
-                   )
-                ++ ("Q "
-                        ++ center
-                        ++ String.fromFloat (toFloat x - size)
-                        ++ " "
-                        ++ String.fromFloat (toFloat y)
-                   )
+            ("M " ++ decimal (x - size) ++ " " ++ decimal y)
+                ++ ("Q " ++ center ++ decimal x ++ " " ++ decimal (y - size))
+                ++ ("Q " ++ center ++ decimal (x + size) ++ " " ++ decimal y)
+                ++ ("Q " ++ center ++ decimal x ++ " " ++ decimal (y + size))
+                ++ ("Q " ++ center ++ decimal (x - size) ++ " " ++ decimal y)
         ]
         []
 
 
-box : Float -> ( Int, Int ) -> Svg msg
-box multiplier ( x, y ) =
+box : Float -> Float -> Float -> Svg msg
+box multiplier x y =
+    let
+        measuredLength =
+            3.3
+    in
     Svg.path
         [ fill "green"
-        , fillOpacity (String.fromFloat multiplier)
+        , fillOpacity (decimal multiplier)
         , stroke "black"
-        , strokeDasharray "3.3"
-        , strokeDashoffset <| String.fromFloat ((1 - multiplier) * 3.3)
+        , strokeDasharray (decimal measuredLength)
+        , strokeDashoffset <| decimal ((1 - multiplier) * measuredLength)
         , strokeWidth "0.2"
         , d <|
-            ("M "
-                ++ String.fromFloat (toFloat x - size)
-                ++ " "
-                ++ String.fromFloat (toFloat y - size)
-            )
-                ++ ("H " ++ String.fromFloat (toFloat x + size))
-                ++ ("V " ++ String.fromFloat (toFloat y + size))
-                ++ ("H " ++ String.fromFloat (toFloat x - size))
-                ++ ("V " ++ String.fromFloat (toFloat y - size))
+            ("M " ++ decimal (x - size) ++ " " ++ decimal (y - size))
+                ++ ("H " ++ decimal (x + size))
+                ++ ("V " ++ decimal (y + size))
+                ++ ("H " ++ decimal (x - size))
+                ++ ("V " ++ decimal (y - size))
         ]
         []
 
 
-pedal : Float -> ( Int, Int ) -> Svg msg
-pedal multiplier ( x, y ) =
+pedal : Float -> Float -> Float -> Svg msg
+pedal multiplier x y =
     Svg.path
         [ fill "url(#pedal)"
-        , fillOpacity <| String.fromFloat multiplier
+        , fillOpacity <| decimal multiplier
         , style <|
             if multiplier <= 0.001 then
                 "display: none"
             else
                 "transform: rotate3d("
-                    ++ String.fromFloat (toFloat x)
+                    ++ decimal x
                     ++ ","
-                    ++ String.fromFloat (toFloat y)
+                    ++ decimal y
                     ++ ", 0,"
-                    ++ String.fromFloat ((1 - multiplier) * 270)
+                    ++ decimal ((1 - multiplier) * 270)
                     ++ "deg);"
         , d <|
-            ("M "
-                ++ String.fromFloat (toFloat x - size)
-                ++ " "
-                ++ String.fromFloat (toFloat y)
-            )
+            ("M " ++ decimal (x - size) ++ " " ++ decimal y)
                 ++ ("Q "
-                        ++ String.fromFloat (toFloat x - size)
+                        ++ decimal (x - size)
                         ++ " "
-                        ++ String.fromFloat (toFloat y - size)
+                        ++ decimal (y - size)
                         ++ " "
-                        ++ String.fromFloat (toFloat x)
+                        ++ decimal x
                         ++ " "
-                        ++ String.fromFloat (toFloat y - size)
+                        ++ decimal (y - size)
                    )
                 ++ ("Q "
-                        ++ String.fromFloat (toFloat x + size)
+                        ++ decimal (x + size)
                         ++ " "
-                        ++ String.fromFloat (toFloat y - size)
+                        ++ decimal (y - size)
                         ++ " "
-                        ++ String.fromFloat (toFloat x + size)
+                        ++ decimal (x + size)
                         ++ " "
-                        ++ String.fromFloat (toFloat y)
+                        ++ decimal y
                    )
                 ++ ("Q "
-                        ++ String.fromFloat (toFloat x + size)
+                        ++ decimal (x + size)
                         ++ " "
-                        ++ String.fromFloat (toFloat y + size)
+                        ++ decimal (y + size)
                         ++ " "
-                        ++ String.fromFloat (toFloat x)
+                        ++ decimal x
                         ++ " "
-                        ++ String.fromFloat (toFloat y + size)
+                        ++ decimal (y + size)
                    )
                 ++ ("Q "
-                        ++ String.fromFloat (toFloat x - size)
+                        ++ decimal (x - size)
                         ++ " "
-                        ++ String.fromFloat (toFloat y + size)
+                        ++ decimal (y + size)
                         ++ " "
-                        ++ String.fromFloat (toFloat x - size)
+                        ++ decimal (x - size)
                         ++ " "
-                        ++ String.fromFloat (toFloat y)
+                        ++ decimal y
                    )
         ]
         []
+
+
+decimal : Float -> String
+decimal =
+    String.fromFloat

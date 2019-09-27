@@ -324,7 +324,6 @@ styles =
     html, body {
         margin:0;
         padding:0;
-        transform-style: preserve-3d;
     }
     main {
         height:100vh;
@@ -335,6 +334,9 @@ styles =
     }
     svg {
         flex: 1;
+    }
+    * {
+        transform-style: preserve-3d;
     }
     """
 
