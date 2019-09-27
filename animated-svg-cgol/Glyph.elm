@@ -1,6 +1,6 @@
 module Glyph exposing (Shape(..), view)
 
-import Svg exposing (..)
+import Svg exposing (Svg, circle, path)
 import Svg.Attributes exposing (..)
 
 
@@ -13,6 +13,7 @@ type Shape
     = Dot
     | Star
     | Box
+    | Pedal
 
 
 view : Shape -> Float -> ( Int, Int ) -> Svg msg
@@ -26,6 +27,9 @@ view shape =
 
         Box ->
             box
+
+        Pedal ->
+            pedal
 
 
 dot : Float -> ( Int, Int ) -> Svg msg
@@ -105,5 +109,67 @@ box multiplier ( x, y ) =
                 ++ ("V " ++ String.fromFloat (toFloat y + size))
                 ++ ("H " ++ String.fromFloat (toFloat x - size))
                 ++ ("V " ++ String.fromFloat (toFloat y - size))
+        ]
+        []
+
+
+pedal : Float -> ( Int, Int ) -> Svg msg
+pedal multiplier ( x, y ) =
+    Svg.path
+        [ fill "url(#pedal)"
+        , fillOpacity <| String.fromFloat multiplier
+        , style <|
+            if multiplier <= 0.001 then
+                "display: none"
+            else
+                "transform: rotate3d("
+                    ++ String.fromFloat (toFloat x)
+                    ++ ","
+                    ++ String.fromFloat (toFloat y)
+                    ++ ", 0,"
+                    ++ String.fromFloat ((1 - multiplier) * 270)
+                    ++ "deg);"
+        , d <|
+            ("M "
+                ++ String.fromFloat (toFloat x - size)
+                ++ " "
+                ++ String.fromFloat (toFloat y)
+            )
+                ++ ("Q "
+                        ++ String.fromFloat (toFloat x - size)
+                        ++ " "
+                        ++ String.fromFloat (toFloat y - size)
+                        ++ " "
+                        ++ String.fromFloat (toFloat x)
+                        ++ " "
+                        ++ String.fromFloat (toFloat y - size)
+                   )
+                ++ ("Q "
+                        ++ String.fromFloat (toFloat x + size)
+                        ++ " "
+                        ++ String.fromFloat (toFloat y - size)
+                        ++ " "
+                        ++ String.fromFloat (toFloat x + size)
+                        ++ " "
+                        ++ String.fromFloat (toFloat y)
+                   )
+                ++ ("Q "
+                        ++ String.fromFloat (toFloat x + size)
+                        ++ " "
+                        ++ String.fromFloat (toFloat y + size)
+                        ++ " "
+                        ++ String.fromFloat (toFloat x)
+                        ++ " "
+                        ++ String.fromFloat (toFloat y + size)
+                   )
+                ++ ("Q "
+                        ++ String.fromFloat (toFloat x - size)
+                        ++ " "
+                        ++ String.fromFloat (toFloat y + size)
+                        ++ " "
+                        ++ String.fromFloat (toFloat x - size)
+                        ++ " "
+                        ++ String.fromFloat (toFloat y)
+                   )
         ]
         []

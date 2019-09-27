@@ -8,7 +8,7 @@ import Html
 import Html.Attributes
 import Html.Events
 import Set exposing (Set)
-import Svg exposing (..)
+import Svg exposing (Svg, defs, linearGradient, stop, svg, text)
 import Svg.Attributes exposing (..)
 import Time
 
@@ -132,6 +132,7 @@ view model =
             [ Html.button [ Html.Events.onClick (SetGlyph Glyph.Dot) ] [ text "Dot" ]
             , Html.button [ Html.Events.onClick (SetGlyph Glyph.Star) ] [ text "Star" ]
             , Html.button [ Html.Events.onClick (SetGlyph Glyph.Box) ] [ text "Box" ]
+            , Html.button [ Html.Events.onClick (SetGlyph Glyph.Pedal) ] [ text "Pedal" ]
             ]
         , Html.div []
             [ Html.button [ Html.Events.onClick (SetPattern blinker) ] [ text "Blinker" ]
@@ -146,7 +147,14 @@ view model =
                 (withCurve model (oldLastX - oldFirstX) (newLastX - newFirstX))
                 (withCurve model (oldLastY - oldFirstY) (newLastY - newFirstY))
             ]
-            (grid (space model) (List.range newFirstX newLastX) (List.range newFirstY newLastY))
+          <|
+            defs []
+                [ linearGradient [ id "pedal", x1 "0%", y1 "0%", x2 "100%", y2 "100%" ]
+                    [ stop [ offset "0%", style "stop-color:red;stop-opacity:0.8" ] []
+                    , stop [ offset "100%", style "stop-color:navy;stop-opacity:1" ] []
+                    ]
+                ]
+                :: grid (space model) (List.range newFirstX newLastX) (List.range newFirstY newLastY)
         ]
 
 
@@ -315,7 +323,8 @@ styles =
     """
     html, body {
         margin:0;
-        padding:0
+        padding:0;
+        transform-style: preserve-3d;
     }
     main {
         height:100vh;
@@ -325,7 +334,7 @@ styles =
         flex-direction:column;
     }
     svg {
-        flex: 1
+        flex: 1;
     }
     """
 
