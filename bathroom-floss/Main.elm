@@ -6,61 +6,135 @@ import Html
 import Html.Attributes
 import Svg exposing (..)
 import Svg.Attributes exposing (..)
-import Time
+
+
+var =
+    { spacing = 0.025
+    , startX = 5.0
+    , startY = 0.05
+    , headRadius = 0.85
+    , limbWidth = 0.85
+    , armLength = 2.0
+    , legLength = 3.0
+    , torsoLength = 3.0
+    , movement = 0.85
+    }
+
+
+headX =
+    let
+        half =
+            [ var.startX - var.movement / 4
+            , var.startX + var.movement / 8
+            , var.startX - var.movement / 8
+            , var.startX + var.movement / 4
+            ]
+    in
+    half ++ List.reverse half
+
+
+rightArmExteriorX =
+    [ -var.movement
+    , var.movement
+    ]
+
+
+rightArmInteriorX =
+    [ var.movement - var.spacing
+    , -var.movement - var.spacing
+    ]
+
+
+rightLegExteriorX =
+    [ var.movement
+    , 0
+    ]
+
+
+rightLegInteriorX =
+    [ -var.movement
+    , 0
+    ]
+
+
+rightTorsoX =
+    [ -(var.movement / 2)
+    , var.movement / 2
+    ]
+
+
+leftTorsoX =
+    [ var.movement / 2
+    , -(var.movement / 2)
+    ]
+
+
+leftLegInteriorX =
+    [ 0
+    , -var.movement
+    ]
+
+
+leftLegExteriorX =
+    [ 0
+    , var.movement
+    ]
+
+
+leftArmInteriorX =
+    [ -var.movement + var.spacing
+    , var.movement + var.spacing
+    ]
+
+
+leftArmExteriorX =
+    [ var.movement
+    , -var.movement
+    ]
 
 
 type alias Model =
     { delta : Float
     , stepDuration : Float
-    , forward : Bool
     }
 
 
 init : Model
 init =
-    Model 0 450 True
+    Model 0 450
 
 
 view : Model -> Svg msg
 view model =
     let
-        spacing =
-            0.025
-
-        startX =
-            5.0
-
-        startY =
-            0.05
-
-        headRadius =
-            0.85
-
-        body =
-            { limbWidth = 0.85
-            , armLength = 2.0
-            , legLength = 3.0
-            , torsoLength = 3.0
-            }
-
         extremity =
             "a"
-                ++ p (body.limbWidth / 2)
-                ++ p (body.limbWidth / 2)
+                ++ p (var.limbWidth / 2)
+                ++ p (var.limbWidth / 2)
                 ++ "0 1 1"
-                ++ p -body.limbWidth
+                ++ p -var.limbWidth
                 ++ "0"
 
-        rightHalf =
-            [ H (body.limbWidth + (spacing * 3 / 2))
-            , Q body.limbWidth 0 body.limbWidth body.limbWidth
-            , L (curve model 0 body.limbWidth) body.armLength
-            , Raw extremity
-            , L (curve model -spacing -(body.limbWidth + spacing)) -body.armLength
-            , V (body.torsoLength + body.legLength)
-            , Raw extremity
-            , V -body.legLength
-            , H -(spacing / 2)
+        bodySegments =
+            [ h (var.limbWidth + (var.spacing * 3 / 2))
+            , q var.limbWidth 0 var.limbWidth var.limbWidth
+            , l (curve model rightArmExteriorX) var.armLength
+            , extremity
+            , l (curve model rightArmInteriorX) -var.armLength
+            , l (curve model rightTorsoX) var.torsoLength
+            , l (curve model rightLegExteriorX) var.legLength
+            , extremity
+            , l (curve model rightLegInteriorX) -var.legLength
+            , h -var.spacing
+            , l (curve model leftLegInteriorX) var.legLength
+            , extremity
+            , l (curve model leftLegExteriorX) -var.legLength
+            , l (curve model leftTorsoX) -var.torsoLength
+            , l (curve model leftArmInteriorX) var.armLength
+            , extremity
+            , l (curve model leftArmExteriorX) -var.armLength
+            , q 0 -var.limbWidth var.limbWidth -var.limbWidth
+            , h (var.limbWidth + (var.spacing * 3 / 2))
             ]
     in
     Html.main_ []
@@ -68,18 +142,19 @@ view model =
         , svg [ Svg.Attributes.viewBox "0 0 10 10" ]
             [ circle
                 [ fill "black"
-                , cx (p startX)
-                , cy (p (startY + headRadius))
-                , r (p headRadius)
+                , cx (p (curve model headX))
+                , cy (p (var.startY + var.headRadius))
+                , r (p var.headRadius)
                 ]
                 []
             , Svg.path
-                [ d <|
+                [ stroke "white"
+                , strokeWidth (p var.spacing)
+                , d <|
                     "M"
-                        ++ p startX
-                        ++ p (startY + 2 * headRadius + spacing)
-                        ++ List.foldr ((++) << dString) "" rightHalf
-                        ++ List.foldl ((++) << dString << reverseY) "" rightHalf
+                        ++ p var.startX
+                        ++ p (var.startY + 2 * var.headRadius + var.spacing)
+                        ++ String.join " " bodySegments
                 ]
                 []
             ]
@@ -94,58 +169,66 @@ type D
     | Raw String
 
 
-reverseY : D -> D
-reverseY d =
-    case d of
-        V y ->
-            V -y
+h : Float -> String
+h x =
+    "h" ++ p x
 
-        L x y ->
-            L x -y
 
-        Q x0 y0 x1 y1 ->
-            Q y0 -x0 x1 -y1
+v : Float -> String
+v y =
+    "v" ++ p y
+
+
+l : Float -> Float -> String
+l x y =
+    "l" ++ p x ++ p y
+
+
+q : Float -> Float -> Float -> Float -> String
+q x0 y0 x1 y1 =
+    "q" ++ p x0 ++ p y0 ++ p x1 ++ p y1
+
+
+curve : Model -> List Float -> Float
+curve model steps =
+    let
+        cycles =
+            model.delta / model.stepDuration
+
+        cyclesCompleted =
+            truncate cycles
+    in
+    case
+        List.drop
+            (modBy (List.length steps) cyclesCompleted)
+            (steps ++ List.take 1 steps)
+    of
+        first :: second :: _ ->
+            cubicBezier (cycles - toFloat cyclesCompleted) first second
 
         _ ->
-            d
+            0
 
 
-dString : D -> String
-dString d =
+cubicBezier : Float -> Float -> Float -> Float
+cubicBezier t p0 p3 =
     let
-        value =
-            case d of
-                H x ->
-                    "h" ++ p x
+        controlPoint1 =
+            1.05
 
-                V y ->
-                    "v" ++ p y
+        controlPoint2 =
+            0.75
 
-                L x y ->
-                    "l" ++ p x ++ p y
+        p1 =
+            p0 + controlPoint1 * (p3 - p0)
 
-                Q x0 y0 x1 y1 ->
-                    "q" ++ p x0 ++ p y0 ++ p x1 ++ p y1
-
-                Raw string ->
-                    string
+        p2 =
+            p0 + controlPoint2 * (p3 - p0)
     in
-    " " ++ value ++ " "
-
-
-curve : Model -> Float -> Float -> Float
-curve model from to =
-    let
-        multiplier =
-            clamp 0 1 (model.delta / model.stepDuration)
-
-        dx =
-            if model.forward then
-                multiplier
-            else
-                1 - multiplier
-    in
-    from + (dx * (to - from))
+    (p0 * ((1 - t) ^ 3))
+        + (p1 * 3 * ((1 - t) ^ 2) * t)
+        + (p2 * 3 * (1 - t) * (t ^ 2))
+        + (p3 * (t ^ 3))
 
 
 p : Float -> String
@@ -178,7 +261,6 @@ styles =
 
 type Msg
     = NewAnimationFrameDelta Float
-    | Next
 
 
 update : Msg -> Model -> Model
@@ -187,19 +269,13 @@ update msg model =
         NewAnimationFrameDelta value ->
             { model | delta = value + model.delta }
 
-        Next ->
-            { model | delta = 0, forward = not model.forward }
-
 
 
 -- PROGRAM
 
 
 subscriptions model =
-    Sub.batch
-        [ Time.every model.stepDuration (\_ -> Next)
-        , Browser.Events.onAnimationFrameDelta NewAnimationFrameDelta
-        ]
+    Browser.Events.onAnimationFrameDelta NewAnimationFrameDelta
 
 
 main =
