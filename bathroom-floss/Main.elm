@@ -22,15 +22,13 @@ var =
 
 
 headX =
-    let
-        half =
-            [ var.startX - var.movement / 4
-            , var.startX + var.movement / 8
-            , var.startX - var.movement / 8
-            , var.startX + var.movement / 4
-            ]
-    in
-    half ++ List.reverse half
+    [ var.startX - var.movement / 2
+    , var.startX + var.movement / 6
+    , var.startX - var.movement / 6
+    , var.startX + var.movement / 2
+    , var.startX - var.movement / 6
+    , var.startX + var.movement / 6
+    ]
 
 
 rightArmExteriorX =
