@@ -12,39 +12,46 @@ main : Svg msg
 main =
     let
         spacing =
+            0.025
+
+        startX =
+            5.0
+
+        startY =
             0.05
 
-        head =
-            [ cx "5"
-            , cy "1"
-            , r (p (1 - spacing))
-            ]
+        headRadius =
+            0.85
 
         body =
             { limbWidth = 0.85
             , armLength = 2.0
             , legLength = 3.0
             , torsoLength = 3.0
-            , startX = 5.0
-            , startY = 2.0
             }
 
         extremity =
             "a"
                 ++ p (body.limbWidth / 2)
                 ++ p (body.limbWidth / 2)
-                ++ "0 1 1 "
+                ++ "0 1 1"
                 ++ p -body.limbWidth
                 ++ "0"
     in
     Html.main_ []
         [ Html.node "style" [] [ text styles ]
         , svg [ Svg.Attributes.viewBox "0 0 10 10" ]
-            [ circle (fill "black" :: head) []
+            [ circle
+                [ fill "black"
+                , cx (p startX)
+                , cy (p (startY + headRadius))
+                , r (p headRadius)
+                ]
+                []
             , Svg.path
                 [ d <|
                     String.join " "
-                        [ "M" ++ p body.startX ++ p body.startY
+                        [ "M" ++ p startX ++ p (startY + 2 * headRadius + spacing)
                         , "h" ++ p (body.limbWidth + (spacing * 3 / 2))
                         , "q" ++ p body.limbWidth ++ " 0 " ++ p body.limbWidth ++ p body.limbWidth
                         , "v" ++ p body.armLength
