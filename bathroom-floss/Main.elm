@@ -11,12 +11,12 @@ import Svg.Attributes exposing (..)
 var =
     { spacing = 0.025
     , startX = 5.0
-    , startY = 0.05
+    , startY = 0.85
     , headRadius = 0.85
     , limbWidth = 0.85
     , armLength = 2.0
     , legLength = 3.0
-    , torsoLength = 3.0
+    , torsoLength = 2.5
     , movement = 0.85
     }
 
@@ -112,28 +112,6 @@ view model =
                 ++ "0 1 1"
                 ++ p -var.limbWidth
                 ++ "0"
-
-        bodySegments =
-            [ h (var.limbWidth + (var.spacing * 3 / 2))
-            , q var.limbWidth 0 var.limbWidth var.limbWidth
-            , l (curve model rightArmExteriorX) var.armLength
-            , extremity
-            , l (curve model rightArmInteriorX) -var.armLength
-            , l (curve model rightTorsoX) var.torsoLength
-            , l (curve model rightLegExteriorX) var.legLength
-            , extremity
-            , l (curve model rightLegInteriorX) -var.legLength
-            , h -var.spacing
-            , l (curve model leftLegInteriorX) var.legLength
-            , extremity
-            , l (curve model leftLegExteriorX) -var.legLength
-            , l (curve model leftTorsoX) -var.torsoLength
-            , l (curve model leftArmInteriorX) var.armLength
-            , extremity
-            , l (curve model leftArmExteriorX) -var.armLength
-            , q 0 -var.limbWidth var.limbWidth -var.limbWidth
-            , h (var.limbWidth + (var.spacing * 3 / 2))
-            ]
     in
     Html.main_ []
         [ Html.node "style" [] [ text styles ]
@@ -145,46 +123,90 @@ view model =
                 , r (p var.headRadius)
                 ]
                 []
-            , Svg.path
-                [ stroke "white"
-                , strokeWidth (p var.spacing)
-                , d <|
-                    "M"
-                        ++ p var.startX
-                        ++ p (var.startY + 2 * var.headRadius + var.spacing)
-                        ++ String.join " " bodySegments
-                ]
-                []
+            , bodyPath True <|
+                m var.startX (var.startY + 2 * var.headRadius + var.spacing)
+                    ++ String.concat
+                        [ h (var.limbWidth + (3 / 2 * var.spacing))
+                        , q var.limbWidth 0 var.limbWidth var.limbWidth
+                        , h -var.limbWidth
+                        , l (curve model rightTorsoX) var.torsoLength
+                        , l (curve model rightLegExteriorX) var.legLength
+                        , extremity
+                        , l (curve model rightLegInteriorX) -var.legLength
+                        , h -var.spacing
+                        , l (curve model leftLegInteriorX) var.legLength
+                        , extremity
+                        , l (curve model leftLegExteriorX) -var.legLength
+                        , l (curve model leftTorsoX) -var.torsoLength
+                        , h -var.limbWidth
+                        , q 0 -var.limbWidth var.limbWidth -var.limbWidth
+                        , h (var.limbWidth + (3 / 2 * var.spacing))
+                        ]
+            , bodyPath (onLeft model) <|
+                m (var.startX + 2 * var.limbWidth + 3 / 2 * var.spacing)
+                    (var.startY + 2 * var.headRadius + var.spacing + var.limbWidth)
+                    ++ String.concat
+                        [ l (curve model rightArmExteriorX) var.armLength
+                        , extremity
+                        , l (curve model rightArmInteriorX) -var.armLength
+                        ]
+            , bodyPath (not (onLeft model)) <|
+                m (var.startX - var.limbWidth - var.spacing / 2)
+                    (var.startY + 2 * var.headRadius + var.spacing + var.limbWidth)
+                    ++ String.concat
+                        [ l (curve model leftArmInteriorX) var.armLength
+                        , extremity
+                        , l (curve model leftArmExteriorX) -var.armLength
+                        ]
             ]
         ]
 
 
-type D
-    = H Float
-    | V Float
-    | L Float Float
-    | Q Float Float Float Float
-    | Raw String
+bodyPath : Bool -> String -> Svg msg
+bodyPath showStroke d =
+    Svg.path
+        [ if showStroke then
+            stroke "white"
+          else
+            stroke "transparent"
+        , strokeWidth (p var.spacing)
+        , Svg.Attributes.d d
+        ]
+        []
+
+
+m : Float -> Float -> String
+m x y =
+    " M" ++ p x ++ p y
 
 
 h : Float -> String
 h x =
-    "h" ++ p x
+    " h" ++ p x
 
 
 v : Float -> String
 v y =
-    "v" ++ p y
+    " v" ++ p y
 
 
 l : Float -> Float -> String
 l x y =
-    "l" ++ p x ++ p y
+    " l" ++ p x ++ p y
 
 
 q : Float -> Float -> Float -> Float -> String
 q x0 y0 x1 y1 =
-    "q" ++ p x0 ++ p y0 ++ p x1 ++ p y1
+    " q" ++ p x0 ++ p y0 ++ p x1 ++ p y1
+
+
+onLeft : Model -> Bool
+onLeft model =
+    let
+        cyclesCompleted =
+            truncate <| model.delta / model.stepDuration
+    in
+    modBy 4 cyclesCompleted - 2 > 0
 
 
 curve : Model -> List Float -> Float
