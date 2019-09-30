@@ -6,10 +6,23 @@ import Html
 import Html.Attributes
 import Svg exposing (..)
 import Svg.Attributes exposing (..)
+import Time
 
 
-main : Svg msg
-main =
+type alias Model =
+    { delta : Float
+    , stepDuration : Float
+    , forward : Bool
+    }
+
+
+init : Model
+init =
+    Model 0 450 True
+
+
+view : Model -> Svg msg
+view model =
     let
         spacing =
             0.025
@@ -37,6 +50,18 @@ main =
                 ++ "0 1 1"
                 ++ p -body.limbWidth
                 ++ "0"
+
+        rightHalf =
+            [ H (body.limbWidth + (spacing * 3 / 2))
+            , Q body.limbWidth 0 body.limbWidth body.limbWidth
+            , L (curve model 0 body.limbWidth) body.armLength
+            , Raw extremity
+            , L (curve model -spacing -(body.limbWidth + spacing)) -body.armLength
+            , V (body.torsoLength + body.legLength)
+            , Raw extremity
+            , V -body.legLength
+            , H -(spacing / 2)
+            ]
     in
     Html.main_ []
         [ Html.node "style" [] [ text styles ]
@@ -50,31 +75,82 @@ main =
                 []
             , Svg.path
                 [ d <|
-                    String.join " "
-                        [ "M" ++ p startX ++ p (startY + 2 * headRadius + spacing)
-                        , "h" ++ p (body.limbWidth + (spacing * 3 / 2))
-                        , "q" ++ p body.limbWidth ++ " 0 " ++ p body.limbWidth ++ p body.limbWidth
-                        , "v" ++ p body.armLength
-                        , extremity
-                        , "v" ++ p -body.armLength
-                        , "h" ++ p -spacing
-                        , "v" ++ p (body.torsoLength + body.legLength)
-                        , extremity
-                        , "v" ++ p -body.legLength
-                        , "h" ++ p -spacing
-                        , "v" ++ p body.legLength
-                        , extremity
-                        , "v" ++ p -(body.torsoLength + body.legLength)
-                        , "h" ++ p -spacing
-                        , "v" ++ p body.armLength
-                        , extremity
-                        , "v" ++ p -body.armLength
-                        , "q 0 " ++ p -body.limbWidth ++ p body.limbWidth ++ p -body.limbWidth
-                        ]
+                    "M"
+                        ++ p startX
+                        ++ p (startY + 2 * headRadius + spacing)
+                        ++ List.foldr ((++) << dString) "" rightHalf
+                        ++ List.foldl ((++) << dString << reverseY) "" rightHalf
                 ]
                 []
             ]
         ]
+
+
+type D
+    = H Float
+    | V Float
+    | L Float Float
+    | Q Float Float Float Float
+    | Raw String
+
+
+reverseY : D -> D
+reverseY d =
+    case d of
+        V y ->
+            V -y
+
+        L x y ->
+            L x -y
+
+        Q x0 y0 x1 y1 ->
+            Q y0 -x0 x1 -y1
+
+        _ ->
+            d
+
+
+dString : D -> String
+dString d =
+    let
+        value =
+            case d of
+                H x ->
+                    "h" ++ p x
+
+                V y ->
+                    "v" ++ p y
+
+                L x y ->
+                    "l" ++ p x ++ p y
+
+                Q x0 y0 x1 y1 ->
+                    "q" ++ p x0 ++ p y0 ++ p x1 ++ p y1
+
+                Raw string ->
+                    string
+    in
+    " " ++ value ++ " "
+
+
+curve : Model -> Float -> Float -> Float
+curve model from to =
+    let
+        multiplier =
+            clamp 0 1 (model.delta / model.stepDuration)
+
+        dx =
+            if model.forward then
+                multiplier
+            else
+                1 - multiplier
+    in
+    from + (dx * (to - from))
+
+
+p : Float -> String
+p float =
+    " " ++ String.fromFloat float ++ " "
 
 
 styles : String
@@ -100,6 +176,36 @@ styles =
     """
 
 
-p : Float -> String
-p float =
-    " " ++ String.fromFloat float ++ " "
+type Msg
+    = NewAnimationFrameDelta Float
+    | Next
+
+
+update : Msg -> Model -> Model
+update msg model =
+    case msg of
+        NewAnimationFrameDelta value ->
+            { model | delta = value + model.delta }
+
+        Next ->
+            { model | delta = 0, forward = not model.forward }
+
+
+
+-- PROGRAM
+
+
+subscriptions model =
+    Sub.batch
+        [ Time.every model.stepDuration (\_ -> Next)
+        , Browser.Events.onAnimationFrameDelta NewAnimationFrameDelta
+        ]
+
+
+main =
+    Browser.element
+        { init = \() -> ( init, Cmd.none )
+        , update = \msg model -> ( update msg model, Cmd.none )
+        , subscriptions = subscriptions
+        , view = view
+        }
