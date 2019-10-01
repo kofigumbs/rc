@@ -32,14 +32,14 @@ headX =
 
 
 rightArmExteriorX =
-    [ -var.movement
-    , var.movement
+    [ var.movement
+    , -var.movement
     ]
 
 
 rightArmInteriorX =
-    [ var.movement - var.spacing
-    , -var.movement - var.spacing
+    [ -var.movement - var.spacing
+    , var.movement - var.spacing
     ]
 
 
@@ -80,14 +80,14 @@ leftLegExteriorX =
 
 
 leftArmInteriorX =
-    [ -var.movement + var.spacing
-    , var.movement + var.spacing
+    [ var.movement + var.spacing
+    , -var.movement + var.spacing
     ]
 
 
 leftArmExteriorX =
-    [ var.movement
-    , -var.movement
+    [ -var.movement
+    , var.movement
     ]
 
 
@@ -99,80 +99,119 @@ type alias Model =
 
 init : Model
 init =
-    Model 0 450
+    Model 0 350
 
 
 view : Model -> Svg msg
 view model =
     let
-        extremity =
-            "a"
-                ++ p (var.limbWidth / 2)
-                ++ p (var.limbWidth / 2)
-                ++ "0 1 1"
-                ++ p -var.limbWidth
-                ++ "0"
+        cycles =
+            modBy 6 <| truncate <| model.delta / model.stepDuration
+
+        leftInBack =
+            List.member cycles [ 3, 4 ]
+
+        rightInBack =
+            List.member cycles [ 0, 1 ]
     in
     Html.main_ []
-        [ Html.node "style" [] [ text styles ]
-        , svg [ Svg.Attributes.viewBox "0 0 10 10" ]
-            [ circle
-                [ fill "black"
-                , cx (p (curve model headX))
-                , cy (p (var.startY + var.headRadius))
-                , r (p var.headRadius)
-                ]
-                []
-            , bodyPath True <|
-                m var.startX (var.startY + 2 * var.headRadius + var.spacing)
-                    ++ String.concat
-                        [ h (var.limbWidth + (3 / 2 * var.spacing))
-                        , q var.limbWidth 0 var.limbWidth var.limbWidth
-                        , h -var.limbWidth
-                        , l (curve model rightTorsoX) var.torsoLength
-                        , l (curve model rightLegExteriorX) var.legLength
-                        , extremity
-                        , l (curve model rightLegInteriorX) -var.legLength
-                        , h -var.spacing
-                        , l (curve model leftLegInteriorX) var.legLength
-                        , extremity
-                        , l (curve model leftLegExteriorX) -var.legLength
-                        , l (curve model leftTorsoX) -var.torsoLength
-                        , h -var.limbWidth
-                        , q 0 -var.limbWidth var.limbWidth -var.limbWidth
-                        , h (var.limbWidth + (3 / 2 * var.spacing))
-                        ]
-            , bodyPath (onLeft model) <|
-                m (var.startX + 2 * var.limbWidth + 3 / 2 * var.spacing)
-                    (var.startY + 2 * var.headRadius + var.spacing + var.limbWidth)
-                    ++ String.concat
-                        [ l (curve model rightArmExteriorX) var.armLength
-                        , extremity
-                        , l (curve model rightArmInteriorX) -var.armLength
-                        ]
-            , bodyPath (not (onLeft model)) <|
-                m (var.startX - var.limbWidth - var.spacing / 2)
-                    (var.startY + 2 * var.headRadius + var.spacing + var.limbWidth)
-                    ++ String.concat
-                        [ l (curve model leftArmInteriorX) var.armLength
-                        , extremity
-                        , l (curve model leftArmExteriorX) -var.armLength
-                        ]
+        [ svg [ Svg.Attributes.viewBox "0 0 10 10" ]
+            [ head model
+            , showIf leftInBack (leftArm model)
+            , showIf rightInBack (rightArm model)
+            , torso model
+            , showIf (not leftInBack) (leftArm model)
+            , showIf (not rightInBack) (rightArm model)
             ]
+        , Html.node "style" [] [ text styles ]
         ]
 
 
-bodyPath : Bool -> String -> Svg msg
-bodyPath showStroke d =
+showIf : Bool -> Svg msg -> Svg msg
+showIf check ifTrue =
+    if check then
+        ifTrue
+    else
+        bodyPath ""
+
+
+head : Model -> Svg msg
+head model =
+    circle
+        [ fill "black"
+        , cx (p (curve model headX))
+        , cy (p (var.startY + var.headRadius))
+        , r (p var.headRadius)
+        ]
+        []
+
+
+torso : Model -> Svg msg
+torso model =
+    bodyPath <|
+        m var.startX (var.startY + 2 * var.headRadius + var.spacing)
+            ++ String.concat
+                [ h (var.limbWidth + (3 / 2 * var.spacing))
+                , q var.limbWidth 0 var.limbWidth var.limbWidth
+                , h -var.limbWidth
+                , l (curve model rightTorsoX) var.torsoLength
+                , l (curve model rightLegExteriorX) var.legLength
+                , extremity
+                , l (curve model rightLegInteriorX) -var.legLength
+                , h -var.spacing
+                , l (curve model leftLegInteriorX) var.legLength
+                , extremity
+                , l (curve model leftLegExteriorX) -var.legLength
+                , l (curve model leftTorsoX) -var.torsoLength
+                , h -var.limbWidth
+                , q 0 -var.limbWidth var.limbWidth -var.limbWidth
+                , h (var.limbWidth + (3 / 2 * var.spacing))
+                ]
+
+
+leftArm : Model -> Svg msg
+leftArm model =
+    bodyPath <|
+        m (var.startX - var.limbWidth - var.spacing / 2)
+            (var.startY + 2 * var.headRadius + var.spacing + var.limbWidth)
+            ++ String.concat
+                [ l (curve model leftArmInteriorX) var.armLength
+                , extremity
+                , l (curve model leftArmExteriorX) -var.armLength
+                ]
+
+
+rightArm : Model -> Svg msg
+rightArm model =
+    bodyPath <|
+        m (var.startX + 2 * var.limbWidth + 3 / 2 * var.spacing)
+            (var.startY + 2 * var.headRadius + var.spacing + var.limbWidth)
+            ++ String.concat
+                [ l (curve model rightArmExteriorX) var.armLength
+                , extremity
+                , l (curve model rightArmInteriorX) -var.armLength
+                ]
+
+
+bodyPath : String -> Svg msg
+bodyPath d =
     Svg.path
-        [ if showStroke then
-            stroke "white"
-          else
-            stroke "transparent"
-        , strokeWidth (p var.spacing)
+        [ fill "black"
+        , stroke "white"
+        , strokeWidth (p (2 * var.spacing))
         , Svg.Attributes.d d
         ]
         []
+
+
+extremity : String
+extremity =
+    "a"
+        ++ p (var.limbWidth / 2)
+        ++ p (var.limbWidth / 2)
+        ++ "0 1 1"
+        ++ p -var.limbWidth
+        ++ "0"
 
 
 m : Float -> Float -> String
@@ -198,15 +237,6 @@ l x y =
 q : Float -> Float -> Float -> Float -> String
 q x0 y0 x1 y1 =
     " q" ++ p x0 ++ p y0 ++ p x1 ++ p y1
-
-
-onLeft : Model -> Bool
-onLeft model =
-    let
-        cyclesCompleted =
-            truncate <| model.delta / model.stepDuration
-    in
-    modBy 4 cyclesCompleted - 2 > 0
 
 
 curve : Model -> List Float -> Float
