@@ -22,12 +22,12 @@ var =
 
 
 headX =
-    [ var.startX - var.movement / 2
-    , var.startX + var.movement / 6
-    , var.startX - var.movement / 6
-    , var.startX + var.movement / 2
-    , var.startX - var.movement / 6
-    , var.startX + var.movement / 6
+    [ -var.movement / 2
+    , var.movement / 6
+    , -var.movement / 6
+    , var.movement / 2
+    , -var.movement / 6
+    , var.movement / 6
     ]
 
 
@@ -139,7 +139,7 @@ head : Model -> Svg msg
 head model =
     circle
         [ fill "black"
-        , cx (p (curve model headX))
+        , cx (p (var.startX + curve model headX))
         , cy (p (var.startY + var.headRadius))
         , r (p var.headRadius)
         ]
