@@ -1,90 +1,19 @@
-module Main exposing (..)
+module Main exposing (main)
 
 import Browser
 import Browser.Events
 import Html exposing (Html)
-import Html.Attributes exposing (height, width)
-import Html.Events
+import Html.Attributes
+import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3, vec3)
 import Task
-import Time
-import WebGL
+import WebGL exposing (Mesh, Shader)
 import WebGL.Texture exposing (Texture)
 
 
-vertexShader : WebGL.Shader { a | position : Vec3 } u {}
-vertexShader =
-    [glsl|
-attribute vec3 position;
-void main () {
-    gl_Position = vec4(position, 1.0);
-}
-|]
-
-
-fragmentShader : WebGL.Shader {} { u | time : Float, bitmoji : Texture } {}
-fragmentShader =
-    [glsl|
-uniform float time;
-uniform sampler2D bitmoji;
-
-in VertexData
-{
-    vec4 v_position;
-    vec3 v_normal;
-    vec2 v_texcoord;
-} inData;
-
-out vec4 fragColor;
-
-vec2 dance(float time, vec2 uv, vec2 point, vec2 offset) {
-    int animSteps = 60;
-    float animDist = 0.003;
-    vec2 diff = abs(uv - point);
-    vec2 value = vec2(0.);
-    for(int i = 0; i < animSteps; i++) {
-        if (diff.y < i*animDist) {
-            value.x += offset.x*time;
-        }
-        if (diff.x < i*animDist) {
-            value.y += offset.y*time;
-        }
-    }
-    return value;
-}
-
-void main(void) {
-    vec2 uv = inData.v_texcoord;
-    vec2 img = vec2(uv.x, 1-uv.y);
-
-    img += dance(sin(time*4)/4, uv, vec2(0.5, 0.7), vec2(0., 0.0002));
-    img += dance(sin(time*8),   uv, vec2(0.5, 0.3), vec2(0.0003, 0.));
-    img += dance(cos(time*16),  uv, vec2(0.5, 0.),  vec2(0., 0.0001));
-
-    fragColor = texture(bitmoji, img);
-}
-|]
-
-
-mesh : WebGL.Mesh { position : Vec3 }
-mesh =
-    let
-        topLeft =
-            { position = vec3 -1 1 1 }
-
-        topRight =
-            { position = vec3 1 1 1 }
-
-        bottomLeft =
-            { position = vec3 -1 -1 1 }
-
-        bottomRight =
-            { position = vec3 1 -1 1 }
-    in
-    WebGL.triangles
-        [ ( topLeft, topRight, bottomLeft )
-        , ( bottomLeft, topRight, bottomRight )
-        ]
+type Msg
+    = Diff Float
+    | GotBitmoji (Result WebGL.Texture.Error Texture)
 
 
 type alias Model =
@@ -93,56 +22,130 @@ type alias Model =
     }
 
 
-init : () -> ( Model, Cmd Msg )
-init () =
-    ( { time = 0
-      , bitmoji = Nothing
-      }
-    , WebGL.Texture.loadWith WebGL.Texture.nonPowerOfTwoOptions "/bitmoji.png"
-        |> Task.attempt GotBitmoji
-    )
-
-
-view : Model -> Html Msg
-view model =
-    case model.bitmoji of
-        Nothing ->
-            Html.div [] [ Html.text "Loading …" ]
-
-        Just bitmoji ->
-            WebGL.toHtml [ width 398, height 398 ]
-                [ WebGL.entity vertexShader fragmentShader mesh <|
-                    { time = model.time, bitmoji = bitmoji }
-                ]
-
-
-type Msg
-    = NewAnimationFrameDelta Float
-    | GotBitmoji (Result WebGL.Texture.Error Texture)
+main : Program () Model Msg
+main =
+    Browser.element
+        { init =
+            always
+                ( Model 0 Nothing
+                , Task.attempt GotBitmoji <| WebGL.Texture.load "/bitmoji.png"
+                )
+        , view = view
+        , subscriptions = subscriptions
+        , update = update
+        }
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        NewAnimationFrameDelta value ->
-            ( { model | time = value + model.time }, Cmd.none )
+        Diff time ->
+            ( { model | time = model.time + time }
+            , Cmd.none
+            )
 
-        GotBitmoji result ->
-            ( { model | bitmoji = Result.toMaybe result }, Cmd.none )
-
-
-
--- PROGRAM
+        GotBitmoji bitmoji ->
+            ( { model | bitmoji = Result.toMaybe bitmoji }, Cmd.none )
 
 
+subscriptions : Model -> Sub Msg
 subscriptions model =
-    Browser.Events.onAnimationFrameDelta NewAnimationFrameDelta
+    Browser.Events.onAnimationFrameDelta Diff
 
 
-main =
-    Browser.element
-        { init = init
-        , update = update
-        , subscriptions = subscriptions
-        , view = view
+view : Model -> Html msg
+view model =
+    WebGL.toHtml
+        [ Html.Attributes.width 256
+        , Html.Attributes.height 256
+        , Html.Attributes.style "display" "block"
+        ]
+    <|
+        case model.bitmoji of
+            Nothing ->
+                []
+
+            Just bitmoji ->
+                [ WebGL.entity vertexShader fragmentShader mesh <|
+                    { time = model.time / 1000
+                    , bitmoji = bitmoji
+                    }
+                ]
+
+
+
+-- Mesh
+
+
+mesh : Mesh { position : Vec3 }
+mesh =
+    WebGL.triangles
+        [ ( { position = vec3 -1 1 0 }
+          , { position = vec3 1 1 0 }
+          , { position = vec3 -1 -1 0 }
+          )
+        , ( { position = vec3 -1 -1 0 }
+          , { position = vec3 1 1 0 }
+          , { position = vec3 1 -1 0 }
+          )
+        ]
+
+
+
+-- Shaders
+
+
+type alias Uniforms =
+    { time : Float
+    , bitmoji : Texture
+    }
+
+
+vertexShader : Shader { position : Vec3 } Uniforms { vFragCoord : Vec2 }
+vertexShader =
+    [glsl|
+        precision mediump float;
+        attribute vec3 position;
+        varying vec2 vFragCoord;
+        void main () {
+            gl_Position = vec4(position, 1.0);
+            vFragCoord = (position.xy + 1.0) / 2.0;
         }
+    |]
+
+
+fragmentShader : Shader {} Uniforms { vFragCoord : Vec2 }
+fragmentShader =
+    [glsl|
+        precision mediump float;
+        varying vec2      vFragCoord;
+        uniform float     time;
+        uniform sampler2D bitmoji;
+
+        vec2 dance(float time, vec2 uv, vec2 point, vec2 offset) {
+            const int animSteps = 60;
+            const float animDist = 0.003;
+            vec2 diff = abs(uv - point);
+            vec2 value = vec2(0.);
+            for(int i = 0; i < animSteps; i++) {
+                if (diff.y < float(i)*animDist) {
+                    value.x += offset.x*time;
+                }
+                if (diff.x < float(i)*animDist) {
+                    value.y += offset.y*time;
+                }
+            }
+            return value;
+        }
+
+        void main(void) {
+            vec2 uv = vFragCoord;
+            vec2 img = vec2(uv);
+
+            img += dance(sin(time*4.)/4., uv, vec2(0.5, 0.7), vec2(0., 0.0002));
+            img += dance(sin(time*8.),    uv, vec2(0.5, 0.3), vec2(0.0003, 0.));
+            img += dance(cos(time*16.),   uv, vec2(0.5, 0.),  vec2(0., 0.0001));
+
+            gl_FragColor = texture2D(bitmoji, img);
+        }
+    |]
