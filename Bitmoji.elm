@@ -1,9 +1,11 @@
 module Main exposing (main)
 
+import Asset
 import Browser
 import Browser.Events
 import Html exposing (Html)
 import Html.Attributes
+import Html.Events
 import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3, vec3)
 import Task
@@ -28,7 +30,7 @@ main =
         { init =
             always
                 ( Model 0 Nothing
-                , Task.attempt GotBitmoji <| WebGL.Texture.load "/bitmoji.png"
+                , Task.attempt GotBitmoji <| WebGL.Texture.load Asset.myBitmoji
                 )
         , view = view
         , subscriptions = subscriptions
@@ -45,7 +47,9 @@ update msg model =
             )
 
         GotBitmoji bitmoji ->
-            ( { model | bitmoji = Result.toMaybe bitmoji }, Cmd.none )
+            ( { model | bitmoji = Result.toMaybe bitmoji }
+            , Cmd.none
+            )
 
 
 subscriptions : Model -> Sub Msg
@@ -53,24 +57,32 @@ subscriptions model =
     Browser.Events.onAnimationFrameDelta Diff
 
 
-view : Model -> Html msg
+view : Model -> Html Msg
 view model =
-    WebGL.toHtml
-        [ Html.Attributes.width 256
-        , Html.Attributes.height 256
-        , Html.Attributes.style "display" "block"
+    Html.main_
+        [ Html.Attributes.style "display" "flex"
+        , Html.Attributes.style "flex-direction" "column"
+        , Html.Attributes.style "justify-content" "center"
+        , Html.Attributes.style "align-items" "center"
         ]
-    <|
-        case model.bitmoji of
-            Nothing ->
-                []
+        [ WebGL.toHtml
+            [ Html.Attributes.width 256
+            , Html.Attributes.height 256
+            , Html.Attributes.style "display" "block"
+            ]
+          <|
+            case model.bitmoji of
+                Nothing ->
+                    []
 
-            Just bitmoji ->
-                [ WebGL.entity vertexShader fragmentShader mesh <|
-                    { time = model.time / 1000
-                    , bitmoji = bitmoji
-                    }
-                ]
+                Just bitmoji ->
+                    [ WebGL.entity vertexShader fragmentShader mesh <|
+                        { time = model.time / 1000
+                        , bitmoji = bitmoji
+                        }
+                    ]
+        , Html.input [] []
+        ]
 
 
 
@@ -122,17 +134,19 @@ fragmentShader =
         uniform float     time;
         uniform sampler2D bitmoji;
 
-        vec2 dance(float time, vec2 uv, vec2 point, vec2 offset) {
-            const int animSteps = 60;
-            const float animDist = 0.003;
-            vec2 diff = abs(uv - point);
+        const float pi       = 3.14159265359;
+        const float animDist = 0.003;
+        const int animSteps  = 60;
+
+        vec2 dance(float time, vec2 uv, vec2 target, vec2 movement) {
+            vec2 diff = abs(uv - target);
             vec2 value = vec2(0.);
-            for(int i = 0; i < animSteps; i++) {
-                if (diff.y < float(i)*animDist) {
-                    value.x += offset.x*time;
+            for(int step = 0; step < animSteps; step++) {
+                if (diff.y < float(step)*animDist) {
+                    value.x += movement.x*time;
                 }
-                if (diff.x < float(i)*animDist) {
-                    value.y += offset.y*time;
+                if (diff.x < float(step)*animDist) {
+                    value.y += movement.y*time;
                 }
             }
             return value;
@@ -142,9 +156,9 @@ fragmentShader =
             vec2 uv = vFragCoord;
             vec2 img = vec2(uv);
 
-            img += dance(sin(time*4.)/4., uv, vec2(0.5, 0.7), vec2(0., 0.0002));
-            img += dance(sin(time*8.),    uv, vec2(0.5, 0.3), vec2(0.0003, 0.));
-            img += dance(cos(time*16.),   uv, vec2(0.5, 0.),  vec2(0., 0.0001));
+            img += dance(sin(time*4.)/4.,         uv, vec2(0.5, 0.7), vec2(0., 0.0002));
+            img += dance(sin(time*8.),            uv, vec2(0.5, 0.3), vec2(0.0003, 0.));
+            img += dance(sin(time*16. + pi/2.),   uv, vec2(0.5, 0.),  vec2(0., 0.0001));
 
             gl_FragColor = texture2D(bitmoji, img);
         }
