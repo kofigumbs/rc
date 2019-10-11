@@ -3,9 +3,9 @@ port module Main exposing (main)
 import Bitmoji
 import Browser
 import Browser.Events
-import Html exposing (Html)
-import Html.Attributes
-import Html.Events
+import Html exposing (..)
+import Html.Attributes exposing (..)
+import Html.Events exposing (onClick)
 import Json.Decode as D
 import Math.Vector2 exposing (Vec2, vec2)
 import Math.Vector3 exposing (Vec3, vec3)
@@ -18,6 +18,7 @@ type Msg
     = Diff Float
     | GotBitmoji (Result WebGL.Texture.Error Texture)
     | NewBitmoji (Result D.Error String)
+    | SetPoseId Bitmoji.PoseId
 
 
 type alias Model =
@@ -74,6 +75,9 @@ update msg model =
         NewBitmoji (Ok userId) ->
             load { model | options = { userId = userId, poseId = model.options.poseId } }
 
+        SetPoseId poseId ->
+            load { model | options = { userId = model.options.userId, poseId = poseId } }
+
 
 pure : a -> ( a, Cmd msg )
 pure a =
@@ -93,17 +97,17 @@ subscriptions model =
 
 view : Model -> Html Msg
 view model =
-    Html.main_
-        [ Html.Attributes.style "display" "flex"
-        , Html.Attributes.style "flex-direction" "column"
-        , Html.Attributes.style "justify-content" "center"
-        , Html.Attributes.style "align-items" "center"
-        , Html.Attributes.style "min-height" "100vh"
+    main_
+        [ style "display" "flex"
+        , style "flex-direction" "column"
+        , style "justify-content" "center"
+        , style "align-items" "center"
+        , style "min-height" "100vh"
         ]
         [ WebGL.toHtml
-            [ Html.Attributes.width 256
-            , Html.Attributes.height 256
-            , Html.Attributes.style "display" "block"
+            [ width 256
+            , height 256
+            , style "display" "block"
             ]
           <|
             case model.bitmoji of
@@ -114,30 +118,31 @@ view model =
                     [ WebGL.entity vertexShader fragmentShader mesh <|
                         toPose (model.time / 1000) bitmoji model.options.poseId
                     ]
-        , Html.div
-            [ Html.Attributes.class "box"
-            , Html.Attributes.style "color" "white"
-            , Html.Attributes.style "background" "#21cc8c"
+        , div
+            [ class "box"
+            , style "color" "white"
+            , style "background" "#21cc8c"
             ]
-            [ Html.ol []
-                [ Html.li []
-                    [ Html.text "Download the "
-                    , Html.a
-                        [ Html.Attributes.href Bitmoji.chromeExtensionUrl ]
-                        [ Html.text "official Bitmoji Chrome extension" ]
-                    ]
-                , Html.li [] [ Html.text "Drag-and-drop your Bitmoji here" ]
+            [ p []
+                [ text "1. Install the "
+                , a
+                    [ href Bitmoji.chromeExtensionUrl ]
+                    [ text "official Bitmoji Chrome extension" ]
                 ]
+            , p [] [ text "2. Drag-and-drop your Bitmoji here" ]
             ]
-        , Html.div
-            [ Html.Attributes.class "box"
-            , Html.Attributes.style "color" "red"
+        , div [ class "box" ]
+            [ button [ onClick (SetPoseId Bitmoji.Lean) ] [ text "The Lean" ]
+            , button [ onClick (SetPoseId Bitmoji.Disco) ] [ text "Disco Wave" ]
             ]
-            [ if model.error then
-                Html.text "That doesn't seem like a Bitmoji..."
-              else
-                Html.text ""
-            ]
+        , if not model.error then
+            text ""
+          else
+            div
+                [ class "box"
+                , style "color" "red"
+                ]
+                [ Html.text "That doesn't seem like a Bitmoji..." ]
         ]
 
 
@@ -166,62 +171,84 @@ mesh =
 type alias Uniforms =
     { time : Float
     , bitmoji : Texture
-
-    --
     , aTimeMultiplier : Float
     , aPhase : Float
     , aTarget : Vec2
     , aMovement : Vec2
-
-    --
     , bTimeMultiplier : Float
     , bPhase : Float
     , bTarget : Vec2
     , bMovement : Vec2
-
-    --
     , cTimeMultiplier : Float
     , cPhase : Float
     , cTarget : Vec2
     , cMovement : Vec2
+    , dTimeMultiplier : Float
+    , dPhase : Float
+    , dTarget : Vec2
+    , dMovement : Vec2
     }
 
 
 toPose : Float -> Texture -> Bitmoji.PoseId -> Uniforms
 toPose time bitmoji poseId =
     case poseId of
-        Bitmoji.Standing ->
+        Bitmoji.Lean ->
             { time = time
             , bitmoji = bitmoji
+
+            -- HEAD
             , aTimeMultiplier = 16
             , aPhase = -pi / 2
             , aTarget = vec2 0.5 0.7
-            , aMovement = vec2 0 0.0002
+            , aMovement = vec2 0 0.2
+
+            -- HIPS
             , bTimeMultiplier = 8
             , bPhase = 0
             , bTarget = vec2 0.5 0.3
-            , bMovement = vec2 0.0006 0
+            , bMovement = vec2 0.6 0
+
+            -- FEET
             , cTimeMultiplier = 16
             , cPhase = -pi / 2
             , cTarget = vec2 0.5 0
-            , cMovement = vec2 0 0.0001
+            , cMovement = vec2 0 0.1
+
+            -- ???
+            , dTimeMultiplier = 0
+            , dPhase = 0
+            , dTarget = vec2 0 0
+            , dMovement = vec2 0 0
             }
 
-        Bitmoji.Pointing ->
+        Bitmoji.Disco ->
             { time = time
             , bitmoji = bitmoji
-            , aTimeMultiplier = 16
+
+            -- LEFT ARM
+            , aTimeMultiplier = 8
             , aPhase = 0
-            , aTarget = vec2 0.35 0.6
-            , aMovement = vec2 0 0
+            , aTarget = vec2 0.1 0.6
+            , aMovement = vec2 0.2 0.3
+
+            -- HIPS
             , bTimeMultiplier = 8
-            , bPhase = 0
+            , bPhase = -pi / 2
             , bTarget = vec2 0.5 0.3
-            , bMovement = vec2 0.0003 0
-            , cTimeMultiplier = 16
-            , cPhase = pi / 2
-            , cTarget = vec2 0.5 0
-            , cMovement = vec2 0 0.0001
+            , bMovement = vec2 0.5 -0.2
+
+            -- RIGHT ARM
+            , cTimeMultiplier = 8
+            , cPhase = -pi
+            , cTarget = vec2 0.7 0.4
+            , cMovement = vec2 0.3 0.5
+
+            -- HEAD
+            , dTimeMultiplier = 8
+            , dPhase = -pi / 2
+            , dTarget = vec2 0.45 0.7
+            , dMovement = vec2 0.05 -0.15
             }
 
 
@@ -255,22 +282,27 @@ fragmentShader =
         uniform vec2  aTarget;         // coordinates [0, 1]
         uniform vec2  aMovement;       // distance in target coordinate system [0, 1]
 
-        uniform float bTimeMultiplier; // rate
-        uniform float bPhase;          // radians
-        uniform vec2  bTarget;         // coordinates [0, 1]
-        uniform vec2  bMovement;       // distance in target coordinate system [0, 1]
+        uniform float bTimeMultiplier;
+        uniform float bPhase;
+        uniform vec2  bTarget;
+        uniform vec2  bMovement;
 
-        uniform float cTimeMultiplier; // rate
-        uniform float cPhase;          // radians
-        uniform vec2  cTarget;         // coordinates [0, 1]
-        uniform vec2  cMovement;       // distance in target coordinate system [0, 1]
+        uniform float cTimeMultiplier;
+        uniform float cPhase;
+        uniform vec2  cTarget;
+        uniform vec2  cMovement;
+
+        uniform float dTimeMultiplier;
+        uniform float dPhase;
+        uniform vec2  dTarget;
+        uniform vec2  dMovement;
 
         vec2 dance(float time, vec2 uv, vec2 target, vec2 movement) {
             vec2 diff = abs(uv - target);
             vec2 value = vec2(0.);
             for(int step = 0; step < animSteps; step++) {
                 if (length(diff) < length(float(step)*animDist)) {
-                    value += movement*time;
+                    value += (movement/1000.)*time;
                 }
             }
             return value;
@@ -283,6 +315,7 @@ fragmentShader =
             img += dance(sin(time*aTimeMultiplier + aPhase), uv, aTarget, aMovement);
             img += dance(sin(time*bTimeMultiplier + bPhase), uv, bTarget, bMovement);
             img += dance(sin(time*cTimeMultiplier + cPhase), uv, cTarget, cMovement);
+            img += dance(sin(time*dTimeMultiplier + dPhase), uv, dTarget, dMovement);
 
             gl_FragColor = texture2D(bitmoji, img);
         }

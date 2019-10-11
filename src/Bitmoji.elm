@@ -8,12 +8,12 @@ type alias Options =
 
 
 type PoseId
-    = Standing
-    | Pointing
+    = Lean
+    | Disco
 
 
 default =
-    { userId = "4b014b97-f9a9-480e-8e7f-3c74def6e9f6", poseId = Standing }
+    { userId = "4b014b97-f9a9-480e-8e7f-3c74def6e9f6", poseId = Lean }
 
 
 parseUserId : Decoder String
@@ -44,19 +44,19 @@ dropUntilUserId onSucceed onFail segments =
 url : Options -> String
 url options =
     baseUrl
-        ++ poseId options.poseId
+        ++ comicId options.poseId
         ++ "-"
         ++ options.userId
         ++ "-v1.png?transparent=1&palette=1"
 
 
-poseId : PoseId -> String
-poseId poseId_ =
+comicId : PoseId -> String
+comicId poseId_ =
     case poseId_ of
-        Standing ->
+        Lean ->
             "49490f4e-eabb-4cab-bcb6-69f361d66706"
 
-        Pointing ->
+        Disco ->
             "5ee3832d-7743-43c8-b6d7-ea47f11a1798"
 
 

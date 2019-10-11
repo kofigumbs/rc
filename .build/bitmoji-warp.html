@@ -2,18 +2,36 @@
 <html>
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,minimum-scale=1,initial-scale=1">
   <title>Main</title>
   <style>
-    html,body{
+    html, body, p {
       margin: 0;
       padding: 0;
-      font-family: sans-serif;
+    }
+
+    * {
+      font-size: 16px;
       font-weight: bold;
+      font-family: sans-serif;
+    }
+
+    button {
+      color: white;
+      background: teal;
+      border: none;
+      padding: 12px;
+      border-radius: 4px;
+    }
+
+    button:not(:last-child) {
+      margin-right: 4px;
     }
 
     .box {
       padding: 20px;
-      border-radius: 2px;
+      margin: 4px;
+      border-radius: 4px;
     }
   </style>
 </head>
