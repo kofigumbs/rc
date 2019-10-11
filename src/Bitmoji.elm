@@ -1,10 +1,19 @@
-module Bitmoji exposing (Options, chromeExtensionUrl, default, parseUserId, url)
+module Bitmoji exposing (Options, PoseId(..), chromeExtensionUrl, default, parseUserId, url)
 
 import Json.Decode exposing (..)
 
 
 type alias Options =
-    { userId : String, poseId : String }
+    { userId : String, poseId : PoseId }
+
+
+type PoseId
+    = Standing
+    | Pointing
+
+
+default =
+    { userId = "4b014b97-f9a9-480e-8e7f-3c74def6e9f6", poseId = Standing }
 
 
 parseUserId : Decoder String
@@ -35,25 +44,20 @@ dropUntilUserId onSucceed onFail segments =
 url : Options -> String
 url options =
     baseUrl
-        ++ options.poseId
+        ++ poseId options.poseId
         ++ "-"
         ++ options.userId
         ++ "-v1.png?transparent=1&palette=1"
 
 
+poseId : PoseId -> String
+poseId poseId_ =
+    case poseId_ of
+        Standing ->
+            "49490f4e-eabb-4cab-bcb6-69f361d66706"
 
--- https://render.bitstrips.com/v2/cpanel/49490f4e-eabb-4cab-bcb6-69f361d66706-4b014b97-f9a9-480e-8e7f-3c74def6e9f6-v1.png?transparent=1&palette=1
--- https://render.bitstrips.com/v2/cpanel/4b014b97-f9a9-480e-8e7f-3c74def6e9f6-49490f4e-eabb-4cab-bcb6-69f361d66706-v1.png?transparent=1&palette=1
-
-
-default =
-    { userId = "4b014b97-f9a9-480e-8e7f-3c74def6e9f6", poseId = poseId.standing }
-
-
-poseId =
-    { standing = "49490f4e-eabb-4cab-bcb6-69f361d66706"
-    , pointing = "5ee3832d-7743-43c8-b6d7-ea47f11a1798"
-    }
+        Pointing ->
+            "5ee3832d-7743-43c8-b6d7-ea47f11a1798"
 
 
 baseUrl =
