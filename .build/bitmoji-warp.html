@@ -1,0 +1,39 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Main</title>
+  <style>
+    html,body{
+      margin: 0;
+      padding: 0;
+      font-family: sans-serif;
+    }
+
+    #imageDrop {
+      padding: 20px;
+      margin: 20px;
+      border-radius: 2px;
+      color: white;
+      background: #21cc8c;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+<div id="elm"></div>
+<script src="/bitmoji-warp.js"></script>
+<script>
+  const app = Elm.Main.init({ node: window.elm, flags: {} });
+  requestAnimationFrame(function() {
+    window.imageDrop.addEventListener("dragover", function(event) {
+      event.preventDefault();
+    });
+    window.imageDrop.addEventListener("drop", function(event) {
+      event.preventDefault();
+      app.ports.imageDrop.send(event.dataTransfer.getData('URL'));
+    });
+  })
+</script>
+</body>
+</html>
