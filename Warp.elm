@@ -17,49 +17,67 @@ import WebGL.Texture exposing (Texture)
 type Msg
     = Diff Float
     | GotBitmoji (Result WebGL.Texture.Error Texture)
-    | NewBitmoji D.Value
+    | NewBitmoji (Result D.Error String)
 
 
 type alias Model =
     { time : Float
+    , error : Bool
     , bitmoji : Maybe Texture
+    , options : Bitmoji.Options
     }
 
 
 main : Program () Model Msg
 main =
     Browser.element
-        { init = always ( Model 0 Nothing, loadBitmoji Bitmoji.mine )
+        { init = init
         , view = view
         , subscriptions = subscriptions
         , update = update
         }
 
 
-loadBitmoji : String -> Cmd Msg
-loadBitmoji =
-    WebGL.Texture.loadWith WebGL.Texture.nonPowerOfTwoOptions >> Task.attempt GotBitmoji
+init : () -> ( Model, Cmd Msg )
+init () =
+    load
+        { time = 0
+        , error = False
+        , bitmoji = Nothing
+        , options = Bitmoji.default
+        }
+
+
+load : Model -> ( Model, Cmd Msg )
+load model =
+    Bitmoji.url model.options
+        |> WebGL.Texture.loadWith WebGL.Texture.nonPowerOfTwoOptions
+        |> Task.attempt GotBitmoji
+        |> Tuple.pair model
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         Diff time ->
-            ( { model | time = model.time + time }
-            , Cmd.none
-            )
+            pure { model | time = model.time + time }
 
-        GotBitmoji bitmoji ->
-            ( { model | bitmoji = Result.toMaybe bitmoji }
-            , Cmd.none
-            )
+        GotBitmoji (Err _) ->
+            pure { model | error = True }
 
-        NewBitmoji value ->
-            ( model
-            , D.decodeValue D.string value
-                |> Result.map loadBitmoji
-                |> Result.withDefault Cmd.none
-            )
+        GotBitmoji (Ok bitmoji) ->
+            pure { model | error = False, bitmoji = Just bitmoji }
+
+        NewBitmoji (Err _) ->
+            pure { model | error = True }
+
+        NewBitmoji (Ok userId) ->
+            load { model | options = { userId = userId, poseId = model.options.poseId } }
+
+
+pure : a -> ( a, Cmd msg )
+pure a =
+    ( a, Cmd.none )
 
 
 port imageDrop : (D.Value -> msg) -> Sub msg
@@ -68,7 +86,7 @@ port imageDrop : (D.Value -> msg) -> Sub msg
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
-        [ imageDrop NewBitmoji
+        [ imageDrop (NewBitmoji << D.decodeValue Bitmoji.parseUserId)
         , Browser.Events.onAnimationFrameDelta Diff
         ]
 
@@ -98,12 +116,25 @@ view model =
                         , bitmoji = bitmoji
                         }
                     ]
-        , Html.div [ Html.Attributes.class "imageDrop" ]
+        , Html.div
+            [ Html.Attributes.class "box"
+            , Html.Attributes.style "color" "white"
+            , Html.Attributes.style "background" "#21cc8c"
+            ]
             [ Html.text "Use the "
             , Html.a
                 [ Html.Attributes.href Bitmoji.chromeExtensionUrl ]
                 [ Html.text "Chrome extension" ]
             , Html.text " to drag-and-drop your Bitmoji here!"
+            ]
+        , Html.div
+            [ Html.Attributes.class "box"
+            , Html.Attributes.style "color" "red"
+            ]
+            [ if model.error then
+                Html.text "That doesn't seem like a Bitmoji..."
+              else
+                Html.text ""
             ]
         ]
 
