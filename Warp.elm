@@ -1,11 +1,12 @@
-module Main exposing (main)
+port module Main exposing (main)
 
-import Asset
+import Bitmoji
 import Browser
 import Browser.Events
 import Html exposing (Html)
 import Html.Attributes
 import Html.Events
+import Json.Decode as D
 import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3, vec3)
 import Task
@@ -16,6 +17,7 @@ import WebGL.Texture exposing (Texture)
 type Msg
     = Diff Float
     | GotBitmoji (Result WebGL.Texture.Error Texture)
+    | NewBitmoji D.Value
 
 
 type alias Model =
@@ -27,15 +29,16 @@ type alias Model =
 main : Program () Model Msg
 main =
     Browser.element
-        { init =
-            always
-                ( Model 0 Nothing
-                , Task.attempt GotBitmoji <| WebGL.Texture.load Asset.myBitmoji
-                )
+        { init = always ( Model 0 Nothing, loadBitmoji Bitmoji.mine )
         , view = view
         , subscriptions = subscriptions
         , update = update
         }
+
+
+loadBitmoji : String -> Cmd Msg
+loadBitmoji =
+    WebGL.Texture.loadWith WebGL.Texture.nonPowerOfTwoOptions >> Task.attempt GotBitmoji
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -51,10 +54,23 @@ update msg model =
             , Cmd.none
             )
 
+        NewBitmoji value ->
+            ( model
+            , D.decodeValue D.string value
+                |> Result.map loadBitmoji
+                |> Result.withDefault Cmd.none
+            )
+
+
+port imageDrop : (D.Value -> msg) -> Sub msg
+
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Browser.Events.onAnimationFrameDelta Diff
+    Sub.batch
+        [ imageDrop NewBitmoji
+        , Browser.Events.onAnimationFrameDelta Diff
+        ]
 
 
 view : Model -> Html Msg
@@ -64,6 +80,7 @@ view model =
         , Html.Attributes.style "flex-direction" "column"
         , Html.Attributes.style "justify-content" "center"
         , Html.Attributes.style "align-items" "center"
+        , Html.Attributes.style "min-height" "100vh"
         ]
         [ WebGL.toHtml
             [ Html.Attributes.width 256
@@ -81,7 +98,13 @@ view model =
                         , bitmoji = bitmoji
                         }
                     ]
-        , Html.input [] []
+        , Html.div [ Html.Attributes.id "imageDrop" ]
+            [ Html.text "Use the "
+            , Html.a
+                [ Html.Attributes.href Bitmoji.chromeExtensionUrl ]
+                [ Html.text "Chrome extension" ]
+            , Html.text " to drag-and-drop your Bitmoji here!"
+            ]
         ]
 
 
