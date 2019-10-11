@@ -7,7 +7,7 @@ import Html exposing (Html)
 import Html.Attributes
 import Html.Events
 import Json.Decode as D
-import Math.Vector2 exposing (Vec2)
+import Math.Vector2 exposing (Vec2, vec2)
 import Math.Vector3 exposing (Vec3, vec3)
 import Task
 import WebGL exposing (Mesh, Shader)
@@ -114,6 +114,27 @@ view model =
                     [ WebGL.entity vertexShader fragmentShader mesh <|
                         { time = model.time / 1000
                         , bitmoji = bitmoji
+
+                        -- img += dance(sin(time*4.)/4.,         uv, vec2(0.5, 0.7), vec2(0., 0.0002));
+                        , aTimeMultiplier = 4
+                        , aTimeDampening = 4
+                        , aPhase = 0
+                        , aTarget = vec2 0.5 0.7
+                        , aMovement = vec2 0 0.0002
+
+                        -- img += dance(sin(time*8.),            uv, vec2(0.5, 0.3), vec2(0.0003, 0.));
+                        , bTimeMultiplier = 8
+                        , bTimeDampening = 1
+                        , bPhase = 0
+                        , bTarget = vec2 0.5 0.3
+                        , bMovement = vec2 0.0003 0
+
+                        -- img += dance(sin(time*16. + pi/2.),   uv, vec2(0.5, 0.),  vec2(0., 0.0001));
+                        , cTimeMultiplier = 16
+                        , cTimeDampening = 1
+                        , cPhase = pi / 2
+                        , cTarget = vec2 0.5 0
+                        , cMovement = vec2 0 0.0001
                         }
                     ]
         , Html.div
@@ -164,6 +185,36 @@ mesh =
 type alias Uniforms =
     { time : Float
     , bitmoji : Texture
+
+    --
+    , aTimeMultiplier : Float
+    , aTimeDampening : Float
+    , aPhase : Float
+    , aTarget : Vec2
+    , aMovement : Vec2
+
+    --
+    , bTimeMultiplier : Float
+    , bTimeDampening : Float
+    , bPhase : Float
+    , bTarget : Vec2
+    , bMovement : Vec2
+
+    --
+    , cTimeMultiplier : Float
+    , cTimeDampening : Float
+    , cPhase : Float
+    , cTarget : Vec2
+    , cMovement : Vec2
+    }
+
+
+type alias Pose =
+    { timeMultiplier : Float
+    , timeDampening : Float
+    , phase : Float
+    , target : Vec2
+    , movement : Vec2
     }
 
 
@@ -192,6 +243,24 @@ fragmentShader =
         const float animDist = 0.003;
         const int animSteps  = 60;
 
+        uniform float aTimeMultiplier; // rate
+        uniform float aTimeDampening;  // ratio of time to distance
+        uniform float aPhase;          // radians
+        uniform vec2  aTarget;         // coordinates [0, 1]
+        uniform vec2  aMovement;       // distance in target coordinate system [0, 1]
+
+        uniform float bTimeMultiplier; // rate
+        uniform float bTimeDampening;  // ratio of time to distance
+        uniform float bPhase;          // radians
+        uniform vec2  bTarget;         // coordinates [0, 1]
+        uniform vec2  bMovement;       // distance in target coordinate system [0, 1]
+
+        uniform float cTimeMultiplier; // rate
+        uniform float cTimeDampening;  // ratio of time to distance
+        uniform float cPhase;          // radians
+        uniform vec2  cTarget;         // coordinates [0, 1]
+        uniform vec2  cMovement;       // distance in target coordinate system [0, 1]
+
         vec2 dance(float time, vec2 uv, vec2 target, vec2 movement) {
             vec2 diff = abs(uv - target);
             vec2 value = vec2(0.);
@@ -210,9 +279,9 @@ fragmentShader =
             vec2 uv = vFragCoord;
             vec2 img = vec2(uv);
 
-            img += dance(sin(time*4.)/4.,         uv, vec2(0.5, 0.7), vec2(0., 0.0002));
-            img += dance(sin(time*8.),            uv, vec2(0.5, 0.3), vec2(0.0003, 0.));
-            img += dance(sin(time*16. + pi/2.),   uv, vec2(0.5, 0.),  vec2(0., 0.0001));
+            img += dance(sin(time*aTimeMultiplier + aPhase)/aTimeDampening, uv, aTarget, aMovement);
+            img += dance(sin(time*bTimeMultiplier + bPhase)/bTimeDampening, uv, bTarget, bMovement);
+            img += dance(sin(time*cTimeMultiplier + cPhase)/cTimeDampening, uv, cTarget, cMovement);
 
             gl_FragColor = texture2D(bitmoji, img);
         }

@@ -52,6 +52,7 @@ default =
 
 poseId =
     { standing = "49490f4e-eabb-4cab-bcb6-69f361d66706"
+    , pointing = "5ee3832d-7743-43c8-b6d7-ea47f11a1798"
     }
 
 
