@@ -10,7 +10,7 @@
       font-family: sans-serif;
     }
 
-    #imageDrop {
+    .imageDrop {
       padding: 20px;
       margin: 20px;
       border-radius: 2px;
@@ -26,10 +26,10 @@
 <script>
   const app = Elm.Main.init({ node: window.elm, flags: {} });
   requestAnimationFrame(function() {
-    window.imageDrop.addEventListener("dragover", function(event) {
+    window.addEventListener("dragover", function(event) {
       event.preventDefault();
     });
-    window.imageDrop.addEventListener("drop", function(event) {
+    window.addEventListener("drop", function(event) {
       event.preventDefault();
       app.ports.imageDrop.send(event.dataTransfer.getData('URL'));
     });

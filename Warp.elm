@@ -98,7 +98,7 @@ view model =
                         , bitmoji = bitmoji
                         }
                     ]
-        , Html.div [ Html.Attributes.id "imageDrop" ]
+        , Html.div [ Html.Attributes.class "imageDrop" ]
             [ Html.text "Use the "
             , Html.a
                 [ Html.Attributes.href Bitmoji.chromeExtensionUrl ]
