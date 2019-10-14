@@ -4,7 +4,7 @@ import Browser
 import Browser.Events
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Html.Events exposing (onClick)
+import Html.Events exposing (on, onClick)
 import Json.Decode as D
 import Math.Vector2 exposing (Vec2, vec2)
 import Math.Vector3 exposing (Vec3, vec3)
@@ -22,6 +22,7 @@ type alias Model =
     , bitmoji : Maybe Texture
     , userId : String
     , dance : Dance { comicId : String }
+    , custom : Dance { comicId : String }
     }
 
 
@@ -37,12 +38,17 @@ main =
 
 init : () -> ( Model, Cmd Msg )
 init () =
+    let
+        kofi =
+            "4b014b97-f9a9-480e-8e7f-3c74def6e9f6"
+    in
     load
         { time = 0
         , error = False
         , bitmoji = Nothing
+        , userId = kofi
         , dance = lean
-        , userId = "4b014b97-f9a9-480e-8e7f-3c74def6e9f6"
+        , custom = customDefaults
         }
 
 
@@ -64,12 +70,12 @@ load model =
 type Msg
     = Diff Float
     | GotBitmoji (Result WebGL.Texture.Error Texture)
-    | NewBitmoji (Result D.Error String)
+    | NewBitmoji (Result D.Error ( String, String ))
     | SetDance (Dance { comicId : String })
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
-update msg model =
+update msg ({ custom } as model) =
     case msg of
         Diff time ->
             pure { model | time = model.time + time }
@@ -83,8 +89,8 @@ update msg model =
         NewBitmoji (Err _) ->
             pure { model | error = True }
 
-        NewBitmoji (Ok userId) ->
-            load { model | userId = userId }
+        NewBitmoji (Ok ( userId, comicId )) ->
+            load { model | userId = userId, custom = { custom | comicId = comicId } }
 
         SetDance dance ->
             load { model | dance = dance }
@@ -101,7 +107,7 @@ port imageDrop : (D.Value -> msg) -> Sub msg
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
-        [ imageDrop (NewBitmoji << D.decodeValue parseUserId)
+        [ imageDrop (NewBitmoji << D.decodeValue parseIds)
         , Browser.Events.onAnimationFrameDelta Diff
         ]
 
@@ -124,10 +130,27 @@ view model =
                 ]
             , p [] [ text "2. Drag-and-drop your Bitmoji here" ]
             ]
-        , div
-            [ class "box" ]
-            [ button [ onClick (SetDance lean) ] [ text "The Lean" ]
-            , button [ onClick (SetDance disco) ] [ text "Disco Wave" ]
+        , div [ class "box" ] <|
+            let
+                radio this disabledValue labelText =
+                    label []
+                        [ input
+                            [ name "radio"
+                            , type_ "radio"
+                            , value this.comicId
+                            , checked (this.comicId == model.dance.comicId)
+                            , onChange this.comicId (SetDance this)
+                            , disabled disabledValue
+                            ]
+                            []
+                        , labelText
+                        ]
+            in
+            [ radio lean False (text "The Lean")
+            , radio disco False (text "Disco Wave")
+            , radio model.custom
+                (String.isEmpty model.custom.comicId)
+                (code [ style "font-family" "monospace" ] [ text "Custom" ])
             ]
         ]
 
@@ -160,6 +183,19 @@ viewCanvas model =
                 , dMovement = model.dance.dMovement
                 }
             ]
+
+
+onChange : String -> msg -> Attribute msg
+onChange this msg =
+    on "change" <|
+        D.andThen
+            (\x ->
+                if x == this then
+                    D.succeed msg
+                else
+                    D.fail ""
+            )
+            Html.Events.targetValue
 
 
 
@@ -350,33 +386,65 @@ disco =
     }
 
 
+customDefaults : Dance { comicId : String }
+customDefaults =
+    { comicId = ""
+    , aTimeMultiplier = 1
+    , aPhase = 0
+    , aTarget = vec2 0 0
+    , aMovement = vec2 0.1 0.1
+    , bTimeMultiplier = 1
+    , bPhase = 0
+    , bTarget = vec2 0 1
+    , bMovement = vec2 0.1 0.1
+    , cTimeMultiplier = 1
+    , cPhase = 0
+    , cTarget = vec2 1 0
+    , cMovement = vec2 0.1 0.1
+    , dTimeMultiplier = 1
+    , dPhase = 0
+    , dTarget = vec2 1 1
+    , dMovement = vec2 0.1 0.1
+    }
+
+
 
 -- BITMOJI "API"
 
 
-parseUserId : D.Decoder String
-parseUserId =
-    D.andThen
-        (\raw ->
-            if not <| String.startsWith baseUrl raw then
+parseIds : D.Decoder ( String, String )
+parseIds =
+    D.andThen parseIds_ D.string
+
+
+parseIds_ : String -> D.Decoder ( String, String )
+parseIds_ raw =
+    if not <| String.startsWith baseUrl raw then
+        D.fail ""
+    else
+        case dropUntilUserId (String.split "-" raw) of
+            Nothing ->
                 D.fail ""
-            else
-                dropUntilUserId D.succeed (D.fail "") (String.split "-" raw)
-        )
-        D.string
+
+            Just userId ->
+                String.dropLeft (String.length baseUrl) raw
+                    |> String.split ("-" ++ userId)
+                    |> List.head
+                    |> Maybe.map (D.succeed << Tuple.pair userId)
+                    |> Maybe.withDefault (D.fail "")
 
 
-dropUntilUserId : (String -> a) -> a -> List String -> a
-dropUntilUserId onSucceed onFail segments =
+dropUntilUserId : List String -> Maybe String
+dropUntilUserId segments =
     case segments of
         [] ->
-            onFail
+            Nothing
 
         [ a, b, c, d, e, _ ] ->
-            onSucceed (String.join "-" [ a, b, c, d, e ])
+            Just (String.join "-" [ a, b, c, d, e ])
 
         _ :: rest ->
-            dropUntilUserId onSucceed onFail rest
+            dropUntilUserId rest
 
 
 baseUrl : String

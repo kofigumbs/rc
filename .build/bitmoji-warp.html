@@ -19,7 +19,6 @@
     main {
       display: flex;
       flex-direction: column;
-      justify-content: center;
       align-items: center;
       min-height: 100vh;
     }
@@ -35,6 +34,10 @@
       border-radius: 4px;
     }
 
+    label {
+      display: block;
+    }
+
     button:not(:last-child) {
       margin-right: 4px;
     }
@@ -43,10 +46,6 @@
       padding: 20px;
       margin: 4px;
       border-radius: 4px;
-    }
-
-    .box>button, .box>a {
-      padding: 12px;
     }
 
     .instructions {
