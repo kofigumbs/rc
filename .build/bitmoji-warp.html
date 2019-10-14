@@ -5,22 +5,33 @@
   <meta name="viewport" content="width=device-width,minimum-scale=1,initial-scale=1">
   <title>Main</title>
   <style>
-    html, body, p {
-      margin: 0;
-      padding: 0;
-    }
-
     * {
       font-size: 16px;
       font-weight: bold;
       font-family: sans-serif;
     }
 
+    html, body, p {
+      margin: 0;
+      padding: 0;
+    }
+
+    main {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    canvas {
+      display: block;
+    }
+
     button {
+      border: none;
       color: white;
       background: teal;
-      border: none;
-      padding: 12px;
       border-radius: 4px;
     }
 
@@ -32,6 +43,23 @@
       padding: 20px;
       margin: 4px;
       border-radius: 4px;
+    }
+
+    .box>button, .box>a {
+      padding: 12px;
+    }
+
+    .instructions {
+      color: white;
+      background: #21cc8c;
+    }
+
+    .warning {
+      color: red;
+    }
+
+    .hide {
+      display: none;
     }
   </style>
 </head>

@@ -1,6 +1,5 @@
 port module Main exposing (main)
 
-import Bitmoji
 import Browser
 import Browser.Events
 import Html exposing (..)
@@ -14,18 +13,15 @@ import WebGL exposing (Mesh, Shader)
 import WebGL.Texture exposing (Texture)
 
 
-type Msg
-    = Diff Float
-    | GotBitmoji (Result WebGL.Texture.Error Texture)
-    | NewBitmoji (Result D.Error String)
-    | SetPoseId Bitmoji.PoseId
+-- ELM ARCHITECTURE
 
 
 type alias Model =
     { time : Float
     , error : Bool
     , bitmoji : Maybe Texture
-    , options : Bitmoji.Options
+    , userId : String
+    , dance : Dance { comicId : String }
     }
 
 
@@ -45,16 +41,31 @@ init () =
         { time = 0
         , error = False
         , bitmoji = Nothing
-        , options = Bitmoji.default
+        , dance = lean
+        , userId = "4b014b97-f9a9-480e-8e7f-3c74def6e9f6"
         }
 
 
 load : Model -> ( Model, Cmd Msg )
 load model =
-    Bitmoji.url model.options
-        |> WebGL.Texture.loadWith WebGL.Texture.nonPowerOfTwoOptions
+    let
+        url =
+            baseUrl
+                ++ model.dance.comicId
+                ++ "-"
+                ++ model.userId
+                ++ "-v1.png?transparent=1&palette=1"
+    in
+    WebGL.Texture.loadWith WebGL.Texture.nonPowerOfTwoOptions url
         |> Task.attempt GotBitmoji
         |> Tuple.pair model
+
+
+type Msg
+    = Diff Float
+    | GotBitmoji (Result WebGL.Texture.Error Texture)
+    | NewBitmoji (Result D.Error String)
+    | SetDance (Dance { comicId : String })
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -73,10 +84,10 @@ update msg model =
             pure { model | error = True }
 
         NewBitmoji (Ok userId) ->
-            load { model | options = { userId = userId, poseId = model.options.poseId } }
+            load { model | userId = userId }
 
-        SetPoseId poseId ->
-            load { model | options = { userId = model.options.userId, poseId = poseId } }
+        SetDance dance ->
+            load { model | dance = dance }
 
 
 pure : a -> ( a, Cmd msg )
@@ -90,64 +101,69 @@ port imageDrop : (D.Value -> msg) -> Sub msg
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
-        [ imageDrop (NewBitmoji << D.decodeValue Bitmoji.parseUserId)
+        [ imageDrop (NewBitmoji << D.decodeValue parseUserId)
         , Browser.Events.onAnimationFrameDelta Diff
         ]
 
 
 view : Model -> Html Msg
 view model =
-    main_
-        [ style "display" "flex"
-        , style "flex-direction" "column"
-        , style "justify-content" "center"
-        , style "align-items" "center"
-        , style "min-height" "100vh"
-        ]
-        [ WebGL.toHtml
-            [ width 256
-            , height 256
-            , style "display" "block"
-            ]
-          <|
-            case model.bitmoji of
-                Nothing ->
-                    []
-
-                Just bitmoji ->
-                    [ WebGL.entity vertexShader fragmentShader mesh <|
-                        toPose (model.time / 1000) bitmoji model.options.poseId
-                    ]
+    main_ []
+        [ WebGL.toHtml [ width 398, height 398 ] (viewCanvas model)
         , div
-            [ class "box"
-            , style "color" "white"
-            , style "background" "#21cc8c"
+            [ class "box warning"
+            , classList [ ( "hide", not model.error ) ]
             ]
+            [ Html.text "That doesn't seem like a Bitmoji..." ]
+        , div
+            [ class "box instructions" ]
             [ p []
                 [ text "1. Install the "
-                , a
-                    [ href Bitmoji.chromeExtensionUrl ]
+                , a [ href chromeExtensionUrl, target "_blank" ]
                     [ text "official Bitmoji Chrome extension" ]
                 ]
             , p [] [ text "2. Drag-and-drop your Bitmoji here" ]
             ]
-        , div [ class "box" ]
-            [ button [ onClick (SetPoseId Bitmoji.Lean) ] [ text "The Lean" ]
-            , button [ onClick (SetPoseId Bitmoji.Disco) ] [ text "Disco Wave" ]
+        , div
+            [ class "box" ]
+            [ button [ onClick (SetDance lean) ] [ text "The Lean" ]
+            , button [ onClick (SetDance disco) ] [ text "Disco Wave" ]
             ]
-        , if not model.error then
-            text ""
-          else
-            div
-                [ class "box"
-                , style "color" "red"
-                ]
-                [ Html.text "That doesn't seem like a Bitmoji..." ]
         ]
 
 
+viewCanvas : Model -> List WebGL.Entity
+viewCanvas model =
+    case model.bitmoji of
+        Nothing ->
+            []
 
--- Mesh
+        Just bitmoji ->
+            [ WebGL.entity vertexShader fragmentShader mesh <|
+                { time = model.time / 1000
+                , bitmoji = bitmoji
+                , aTimeMultiplier = model.dance.aTimeMultiplier
+                , aPhase = model.dance.aPhase
+                , aTarget = model.dance.aTarget
+                , aMovement = model.dance.aMovement
+                , bTimeMultiplier = model.dance.bTimeMultiplier
+                , bPhase = model.dance.bPhase
+                , bTarget = model.dance.bTarget
+                , bMovement = model.dance.bMovement
+                , cTimeMultiplier = model.dance.cTimeMultiplier
+                , cPhase = model.dance.cPhase
+                , cTarget = model.dance.cTarget
+                , cMovement = model.dance.cMovement
+                , dTimeMultiplier = model.dance.dTimeMultiplier
+                , dPhase = model.dance.dPhase
+                , dTarget = model.dance.dTarget
+                , dMovement = model.dance.dMovement
+                }
+            ]
+
+
+
+-- MESH
 
 
 mesh : Mesh { position : Vec3 }
@@ -165,91 +181,11 @@ mesh =
 
 
 
--- Shaders
+-- SHADERS
 
 
 type alias Uniforms =
-    { time : Float
-    , bitmoji : Texture
-    , aTimeMultiplier : Float
-    , aPhase : Float
-    , aTarget : Vec2
-    , aMovement : Vec2
-    , bTimeMultiplier : Float
-    , bPhase : Float
-    , bTarget : Vec2
-    , bMovement : Vec2
-    , cTimeMultiplier : Float
-    , cPhase : Float
-    , cTarget : Vec2
-    , cMovement : Vec2
-    , dTimeMultiplier : Float
-    , dPhase : Float
-    , dTarget : Vec2
-    , dMovement : Vec2
-    }
-
-
-toPose : Float -> Texture -> Bitmoji.PoseId -> Uniforms
-toPose time bitmoji poseId =
-    case poseId of
-        Bitmoji.Lean ->
-            { time = time
-            , bitmoji = bitmoji
-
-            -- HEAD
-            , aTimeMultiplier = 16
-            , aPhase = -pi / 2
-            , aTarget = vec2 0.5 0.7
-            , aMovement = vec2 0 0.2
-
-            -- HIPS
-            , bTimeMultiplier = 8
-            , bPhase = 0
-            , bTarget = vec2 0.5 0.3
-            , bMovement = vec2 0.6 0
-
-            -- FEET
-            , cTimeMultiplier = 16
-            , cPhase = -pi / 2
-            , cTarget = vec2 0.5 0
-            , cMovement = vec2 0 0.1
-
-            -- ???
-            , dTimeMultiplier = 0
-            , dPhase = 0
-            , dTarget = vec2 0 0
-            , dMovement = vec2 0 0
-            }
-
-        Bitmoji.Disco ->
-            { time = time
-            , bitmoji = bitmoji
-
-            -- LEFT ARM
-            , aTimeMultiplier = 8
-            , aPhase = 0
-            , aTarget = vec2 0.1 0.6
-            , aMovement = vec2 0.2 0.3
-
-            -- HIPS
-            , bTimeMultiplier = 8
-            , bPhase = -pi / 2
-            , bTarget = vec2 0.5 0.3
-            , bMovement = vec2 0.5 -0.2
-
-            -- RIGHT ARM
-            , cTimeMultiplier = 8
-            , cPhase = -pi
-            , cTarget = vec2 0.7 0.4
-            , cMovement = vec2 0.3 0.5
-
-            -- HEAD
-            , dTimeMultiplier = 8
-            , dPhase = -pi / 2
-            , dTarget = vec2 0.45 0.7
-            , dMovement = vec2 0.05 -0.15
-            }
+    Dance { time : Float, bitmoji : Texture }
 
 
 vertexShader : Shader { position : Vec3 } Uniforms { vFragCoord : Vec2 }
@@ -277,10 +213,10 @@ fragmentShader =
         const int animSteps = 60;
         const vec2 animDist = vec2(0.003, 0.003);
 
-        uniform float aTimeMultiplier; // rate
-        uniform float aPhase;          // radians
-        uniform vec2  aTarget;         // coordinates [0, 1]
-        uniform vec2  aMovement;       // distance in target coordinate system [0, 1]
+        uniform float aTimeMultiplier;
+        uniform float aPhase;
+        uniform vec2  aTarget;
+        uniform vec2  aMovement;
 
         uniform float bTimeMultiplier;
         uniform float bPhase;
@@ -320,3 +256,134 @@ fragmentShader =
             gl_FragColor = texture2D(bitmoji, img);
         }
     |]
+
+
+
+-- ANIMATION
+--
+-- Choose which 4 points (a, b, c, d) to animate in the Bitmoji image!
+--
+--   Multiplier: rate of movement. Bigger means faster.
+--   Phase: radians by which to offset movement. Bigger means more delayed.
+--   Target: coordinates [0, 1]. Point to target.
+--   Movement: distance in target coordinate system [0, 1]. How far to animate.
+
+
+type alias Dance a =
+    { a
+        | aTimeMultiplier : Float
+        , aPhase : Float
+        , aTarget : Vec2
+        , aMovement : Vec2
+        , bTimeMultiplier : Float
+        , bPhase : Float
+        , bTarget : Vec2
+        , bMovement : Vec2
+        , cTimeMultiplier : Float
+        , cPhase : Float
+        , cTarget : Vec2
+        , cMovement : Vec2
+        , dTimeMultiplier : Float
+        , dPhase : Float
+        , dTarget : Vec2
+        , dMovement : Vec2
+    }
+
+
+lean : Dance { comicId : String }
+lean =
+    { comicId = "49490f4e-eabb-4cab-bcb6-69f361d66706"
+
+    -- HEAD
+    , aTimeMultiplier = 16
+    , aPhase = -pi / 2
+    , aTarget = vec2 0.5 0.7
+    , aMovement = vec2 0 0.2
+
+    -- HIPS
+    , bTimeMultiplier = 8
+    , bPhase = 0
+    , bTarget = vec2 0.5 0.3
+    , bMovement = vec2 0.6 0
+
+    -- FEET
+    , cTimeMultiplier = 16
+    , cPhase = -pi / 2
+    , cTarget = vec2 0.5 0
+    , cMovement = vec2 0 0.1
+
+    -- ???
+    , dTimeMultiplier = 0
+    , dPhase = 0
+    , dTarget = vec2 0 0
+    , dMovement = vec2 0 0
+    }
+
+
+disco : Dance { comicId : String }
+disco =
+    { comicId = "5ee3832d-7743-43c8-b6d7-ea47f11a1798"
+
+    -- LEFT ARM
+    , aTimeMultiplier = 8
+    , aPhase = 0
+    , aTarget = vec2 0.1 0.6
+    , aMovement = vec2 0.2 0.3
+
+    -- HIPS
+    , bTimeMultiplier = 8
+    , bPhase = -pi / 2
+    , bTarget = vec2 0.5 0.3
+    , bMovement = vec2 0.5 -0.2
+
+    -- RIGHT ARM
+    , cTimeMultiplier = 8
+    , cPhase = -pi
+    , cTarget = vec2 0.7 0.4
+    , cMovement = vec2 0.3 0.5
+
+    -- HEAD
+    , dTimeMultiplier = 8
+    , dPhase = -pi / 2
+    , dTarget = vec2 0.45 0.7
+    , dMovement = vec2 0.05 -0.15
+    }
+
+
+
+-- BITMOJI "API"
+
+
+parseUserId : D.Decoder String
+parseUserId =
+    D.andThen
+        (\raw ->
+            if not <| String.startsWith baseUrl raw then
+                D.fail ""
+            else
+                dropUntilUserId D.succeed (D.fail "") (String.split "-" raw)
+        )
+        D.string
+
+
+dropUntilUserId : (String -> a) -> a -> List String -> a
+dropUntilUserId onSucceed onFail segments =
+    case segments of
+        [] ->
+            onFail
+
+        [ a, b, c, d, e, _ ] ->
+            onSucceed (String.join "-" [ a, b, c, d, e ])
+
+        _ :: rest ->
+            dropUntilUserId onSucceed onFail rest
+
+
+baseUrl : String
+baseUrl =
+    "https://render.bitstrips.com/v2/cpanel/"
+
+
+chromeExtensionUrl : String
+chromeExtensionUrl =
+    "https://chrome.google.com/webstore/detail/bitmoji/bfgdeiadkckfbkeigkoncpdieiiefpig?hl=en"
