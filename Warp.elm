@@ -121,36 +121,26 @@ view model =
             , classList [ ( "hide", not model.error ) ]
             ]
             [ Html.text "That doesn't seem like a Bitmoji..." ]
-        , div
-            [ class "box instructions" ]
-            [ p []
-                [ text "1. Install the "
-                , a [ href chromeExtensionUrl, target "_blank" ]
-                    [ text "official Bitmoji Chrome extension" ]
+        , div []
+            [ radio model lean False (text "The Lean")
+            , radio model disco False (text "Disco Wave")
+            , div [ class "box instructions" ]
+                [ p []
+                    [ text "1. Install the "
+                    , a [ href chromeExtensionUrl, target "_blank" ]
+                        [ text "official Bitmoji Chrome extension" ]
+                    ]
+                , p [] [ text "2. Drag-and-drop your Bitmoji here" ]
                 ]
-            , p [] [ text "2. Drag-and-drop your Bitmoji here" ]
-            ]
-        , div [ class "box" ] <|
-            let
-                radio this disabledValue labelText =
-                    label []
-                        [ input
-                            [ name "radio"
-                            , type_ "radio"
-                            , value this.comicId
-                            , checked (this.comicId == model.dance.comicId)
-                            , onChange this.comicId (SetDance this)
-                            , disabled disabledValue
-                            ]
-                            []
-                        , labelText
-                        ]
-            in
-            [ radio lean False (text "The Lean")
-            , radio disco False (text "Disco Wave")
-            , radio model.custom
-                (String.isEmpty model.custom.comicId)
-                (code [ style "font-family" "monospace" ] [ text "Custom" ])
+            , let
+                customDisabled =
+                    String.isEmpty model.custom.comicId
+              in
+              radio model model.custom customDisabled <|
+                code [ style "font-family" "monospace" ]
+                    [ text "Custom"
+                    , span [ classList [ ( "hide", customDisabled ) ] ] [ text " ✔" ]
+                    ]
             ]
         ]
 
@@ -183,6 +173,22 @@ viewCanvas model =
                 , dMovement = model.dance.dMovement
                 }
             ]
+
+
+radio : Model -> Dance { comicId : String } -> Bool -> Html Msg -> Html Msg
+radio model this disabledValue labelText =
+    label []
+        [ input
+            [ name "radio"
+            , type_ "radio"
+            , value this.comicId
+            , checked (this.comicId == model.dance.comicId)
+            , onChange this.comicId (SetDance this)
+            , disabled disabledValue
+            ]
+            []
+        , labelText
+        ]
 
 
 onChange : String -> msg -> Attribute msg
@@ -389,21 +395,21 @@ disco =
 customDefaults : Dance { comicId : String }
 customDefaults =
     { comicId = ""
-    , aTimeMultiplier = 1
+    , aTimeMultiplier = 2
     , aPhase = 0
-    , aTarget = vec2 0 0
+    , aTarget = vec2 0.2 0.2
     , aMovement = vec2 0.1 0.1
-    , bTimeMultiplier = 1
+    , bTimeMultiplier = 4
     , bPhase = 0
-    , bTarget = vec2 0 1
+    , bTarget = vec2 0.4 0.4
     , bMovement = vec2 0.1 0.1
-    , cTimeMultiplier = 1
+    , cTimeMultiplier = 6
     , cPhase = 0
-    , cTarget = vec2 1 0
+    , cTarget = vec2 0.6 0.6
     , cMovement = vec2 0.1 0.1
-    , dTimeMultiplier = 1
+    , dTimeMultiplier = 8
     , dPhase = 0
-    , dTarget = vec2 1 1
+    , dTarget = vec2 0.8 0.8
     , dMovement = vec2 0.1 0.1
     }
 
