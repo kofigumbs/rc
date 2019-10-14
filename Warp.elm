@@ -4,7 +4,7 @@ import Browser
 import Browser.Events
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Html.Events exposing (on, onClick)
+import Html.Events exposing (on, onCheck, onClick)
 import Json.Decode as D
 import Math.Vector2 exposing (Vec2, vec2)
 import Math.Vector3 exposing (Vec3, vec3)
@@ -22,7 +22,7 @@ type alias Model =
     , bitmoji : Maybe Texture
     , userId : String
     , dance : Dance { comicId : String }
-    , custom : Dance { comicId : String }
+    , showAnchors : Bool
     }
 
 
@@ -48,7 +48,7 @@ init () =
         , bitmoji = Nothing
         , userId = kofi
         , dance = lean
-        , custom = customDefaults
+        , showAnchors = False
         }
 
 
@@ -72,10 +72,11 @@ type Msg
     | GotBitmoji (Result WebGL.Texture.Error Texture)
     | NewBitmoji (Result D.Error ( String, String ))
     | SetDance (Dance { comicId : String })
+    | SetShowAnchors Bool
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
-update msg ({ custom } as model) =
+update msg ({ dance } as model) =
     case msg of
         Diff time ->
             pure { model | time = model.time + time }
@@ -90,10 +91,13 @@ update msg ({ custom } as model) =
             pure { model | error = True }
 
         NewBitmoji (Ok ( userId, comicId )) ->
-            load { model | userId = userId, custom = { custom | comicId = comicId } }
+            load { model | userId = userId, dance = { dance | comicId = comicId } }
 
-        SetDance dance ->
-            load { model | dance = dance }
+        SetDance dance_ ->
+            load { model | dance = dance_ }
+
+        SetShowAnchors showAnchors ->
+            pure { model | showAnchors = showAnchors }
 
 
 pure : a -> ( a, Cmd msg )
@@ -115,32 +119,48 @@ subscriptions model =
 view : Model -> Html Msg
 view model =
     main_ []
-        [ WebGL.toHtml [ width 398, height 398 ] (viewCanvas model)
+        [ div [ style "position" "relative" ]
+            [ WebGL.toHtml [ width bitmojiSize, height bitmojiSize ] (viewCanvas model)
+            , viewAnchor model.showAnchors
+                model.dance.aTimeMultiplier
+                model.dance.aPhase
+                model.dance.aTarget
+                model.dance.aMovement
+            , viewAnchor model.showAnchors
+                model.dance.bTimeMultiplier
+                model.dance.bPhase
+                model.dance.bTarget
+                model.dance.bMovement
+            , viewAnchor model.showAnchors
+                model.dance.cTimeMultiplier
+                model.dance.cPhase
+                model.dance.cTarget
+                model.dance.cMovement
+            , viewAnchor model.showAnchors
+                model.dance.dTimeMultiplier
+                model.dance.dPhase
+                model.dance.dTarget
+                model.dance.dMovement
+            ]
         , div
-            [ class "box warning"
+            [ class "warning"
             , classList [ ( "hide", not model.error ) ]
             ]
             [ Html.text "That doesn't seem like a Bitmoji..." ]
         , div []
-            [ radio model lean False (text "The Lean")
-            , radio model disco False (text "Disco Wave")
-            , div [ class "box instructions" ]
-                [ p []
-                    [ text "1. Install the "
-                    , a [ href chromeExtensionUrl, target "_blank" ]
-                        [ text "official Bitmoji Chrome extension" ]
-                    ]
-                , p [] [ text "2. Drag-and-drop your Bitmoji here" ]
+            [ radio model lean (text "The Lean")
+            , radio model disco (text "Disco Wave")
+            ]
+        , details [ class "instructions" ]
+            [ summary [] [ text "Customize" ]
+            , p []
+                [ text "1. Install the "
+                , a [ href chromeExtensionUrl, target "_blank" ]
+                    [ text "official Bitmoji Chrome extension" ]
                 ]
-            , let
-                customDisabled =
-                    String.isEmpty model.custom.comicId
-              in
-              radio model model.custom customDisabled <|
-                code [ style "font-family" "monospace" ]
-                    [ text "Custom"
-                    , span [ classList [ ( "hide", customDisabled ) ] ] [ text " ✔" ]
-                    ]
+            , p [] [ text "2. Drag-and-drop your Bitmoji here" ]
+            , hr [] []
+            , checkbox SetShowAnchors model.showAnchors (text "Show Anchors")
             ]
         ]
 
@@ -175,8 +195,30 @@ viewCanvas model =
             ]
 
 
-radio : Model -> Dance { comicId : String } -> Bool -> Html Msg -> Html Msg
-radio model this disabledValue labelText =
+viewAnchor : Bool -> Float -> Float -> Vec2 -> Vec2 -> Html Msg
+viewAnchor show timeMultiplier phase target movement =
+    let
+        radius =
+            6
+    in
+    if not show then
+        text ""
+    else
+        span
+            [ style "position" "absolute"
+            , style "cursor" "move"
+            , style "border-radius" "50%"
+            , style "border" "2px solid #21cc8c"
+            , style "width" (px (2 * radius))
+            , style "height" (px (2 * radius))
+            , style "left" <| px (Math.Vector2.getX target * bitmojiSize - radius)
+            , style "top" <| px (bitmojiSize - Math.Vector2.getY target * bitmojiSize - radius)
+            ]
+            []
+
+
+radio : Model -> Dance { comicId : String } -> Html Msg -> Html Msg
+radio model this labelText =
     label []
         [ input
             [ name "radio"
@@ -184,9 +226,16 @@ radio model this disabledValue labelText =
             , value this.comicId
             , checked (this.comicId == model.dance.comicId)
             , onChange this.comicId (SetDance this)
-            , disabled disabledValue
             ]
             []
+        , labelText
+        ]
+
+
+checkbox : (Bool -> msg) -> Bool -> Html msg -> Html msg
+checkbox toMsg value labelText =
+    label []
+        [ input [ type_ "checkbox", checked value, onCheck toMsg ] []
         , labelText
         ]
 
@@ -202,6 +251,11 @@ onChange this msg =
                     D.fail ""
             )
             Html.Events.targetValue
+
+
+px : Float -> String
+px value =
+    String.fromFloat value ++ "px"
 
 
 
@@ -416,6 +470,11 @@ customDefaults =
 
 
 -- BITMOJI "API"
+
+
+bitmojiSize : number
+bitmojiSize =
+    398
 
 
 parseIds : D.Decoder ( String, String )
