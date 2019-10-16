@@ -125,14 +125,12 @@ pure a =
 port imageDrop : (D.Value -> msg) -> Sub msg
 
 
-port onPointerUp : ({} -> msg) -> Sub msg
-
-
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ imageDrop (NewBitmoji << D.decodeValue parseIds)
         , Browser.Events.onAnimationFrameDelta Diff
+        , Browser.Events.onMouseUp (D.succeed StopCustomization)
         ]
 
 
@@ -153,13 +151,7 @@ view model =
                     , Html.Attributes.width bitmojiSize
                     , Html.Attributes.height bitmojiSize
                     , Svg.Attributes.viewBox "0 0 1 1"
-                    , Html.Events.on "pointermove" (D.map Customize model.toCustomization)
-                    , Html.Events.custom "pointerup" <|
-                        D.succeed
-                            { message = StopCustomization
-                            , preventDefault = True
-                            , stopPropagation = True
-                            }
+                    , Html.Events.on "mousemove" (D.map Customize model.toCustomization)
                     ]
                     [ viewAnchor Dance.A
                         model.dance.aTimeMultiplier
@@ -252,8 +244,9 @@ viewAnchor anchor timeMultiplier phase target movement =
     Svg.g []
         [ Svg.path
             [ Svg.Attributes.style "cursor:move"
-            , customizeOnPointerDown <|
-                D.map (Dance.Target anchor) (D.map2 vec2 offsetX offsetYInverse)
+            , Html.Events.onMouseDown <|
+                StartCustomization <|
+                    D.map (Dance.Target anchor) (D.map2 vec2 offsetX offsetYInverse)
             , Svg.Attributes.d <|
                 String.join " " <|
                     List.map (String.join " ") <|
@@ -272,8 +265,9 @@ viewAnchor anchor timeMultiplier phase target movement =
             , Svg.Attributes.r "0.01"
             , Svg.Attributes.cx <| String.fromFloat x
             , Svg.Attributes.cy <| String.fromFloat (y + height / 2)
-            , customizeOnPointerDown <|
-                D.map (Dance.MovementY anchor << distance y) offsetY
+            , Html.Events.onMouseDown <|
+                StartCustomization <|
+                    D.map (Dance.MovementY anchor << distance y) offsetY
             ]
             []
         , Svg.circle
@@ -281,15 +275,12 @@ viewAnchor anchor timeMultiplier phase target movement =
             , Svg.Attributes.r "0.01"
             , Svg.Attributes.cx <| String.fromFloat (x + width / 2)
             , Svg.Attributes.cy <| String.fromFloat y
-            , customizeOnPointerDown <| D.map (Dance.MovementX anchor << distance x) offsetX
+            , Html.Events.onMouseDown <|
+                StartCustomization <|
+                    D.map (Dance.MovementX anchor << distance x) offsetX
             ]
             []
         ]
-
-
-customizeOnPointerDown : D.Decoder Dance.Customization -> Attribute Msg
-customizeOnPointerDown customizer =
-    Html.Events.on "pointerdown" <| D.succeed (StartCustomization customizer)
 
 
 radio : Model -> Dance { comicId : String } -> Html Msg -> Html Msg
