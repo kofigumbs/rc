@@ -5,10 +5,12 @@ import Browser.Events
 import Dance exposing (Dance)
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Html.Events exposing (on, onCheck, onClick)
+import Html.Events
 import Json.Decode as D
 import Math.Vector2 exposing (Vec2, vec2)
 import Math.Vector3 exposing (Vec3, vec3)
+import Svg exposing (Svg)
+import Svg.Attributes exposing (cx, cy, rx, ry, viewBox)
 import Task
 import WebGL exposing (Mesh, Shader)
 import WebGL.Texture exposing (Texture)
@@ -24,6 +26,7 @@ type alias Model =
     , userId : String
     , dance : Dance { comicId : String }
     , showAnchors : Bool
+    , moving : Maybe Dance.Anchor
     }
 
 
@@ -50,6 +53,7 @@ init () =
         , userId = kofi
         , dance = Dance.lean
         , showAnchors = False
+        , moving = Nothing
         }
 
 
@@ -74,6 +78,9 @@ type Msg
     | NewBitmoji (Result D.Error ( String, String ))
     | SetDance (Dance { comicId : String })
     | SetShowAnchors Bool
+    | StartAnchorMove Dance.Anchor
+    | AnchorMove Float Float
+    | StopAnchorMove
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -100,6 +107,23 @@ update msg ({ dance } as model) =
         SetShowAnchors showAnchors ->
             pure { model | showAnchors = showAnchors }
 
+        StartAnchorMove anchor ->
+            pure { model | moving = Just anchor }
+
+        AnchorMove x y ->
+            case model.moving of
+                Nothing ->
+                    pure model
+
+                Just anchor ->
+                    dance
+                        |> Dance.customize (Dance.TargetY anchor) y
+                        |> Dance.customize (Dance.TargetX anchor) x
+                        |> (\dance_ -> pure { model | dance = dance_ })
+
+        StopAnchorMove ->
+            pure { model | moving = Nothing }
+
 
 pure : a -> ( a, Cmd msg )
 pure a =
@@ -114,6 +138,10 @@ subscriptions model =
     Sub.batch
         [ imageDrop (NewBitmoji << D.decodeValue parseIds)
         , Browser.Events.onAnimationFrameDelta Diff
+        , if model.moving == Nothing then
+            Sub.none
+          else
+            Browser.Events.onMouseUp (D.succeed StopAnchorMove)
         ]
 
 
@@ -122,26 +150,40 @@ view model =
     main_ [ style "max-width" (px bitmojiSize) ]
         [ div [ style "position" "relative" ]
             [ WebGL.toHtml [ width bitmojiSize, height bitmojiSize ] (viewCanvas model)
-            , viewAnchor model.showAnchors
-                model.dance.aTimeMultiplier
-                model.dance.aPhase
-                model.dance.aTarget
-                model.dance.aMovement
-            , viewAnchor model.showAnchors
-                model.dance.bTimeMultiplier
-                model.dance.bPhase
-                model.dance.bTarget
-                model.dance.bMovement
-            , viewAnchor model.showAnchors
-                model.dance.cTimeMultiplier
-                model.dance.cPhase
-                model.dance.cTarget
-                model.dance.cMovement
-            , viewAnchor model.showAnchors
-                model.dance.dTimeMultiplier
-                model.dance.dPhase
-                model.dance.dTarget
-                model.dance.dMovement
+            , showIf model.showAnchors <|
+                Svg.svg
+                    [ style "position" "absolute"
+                    , style "top" "0"
+                    , style "left" "0"
+                    , width bitmojiSize
+                    , height bitmojiSize
+                    , viewBox "0 0 1 1"
+                    , Html.Events.on "mousemove" <|
+                        D.map2 (\x y -> AnchorMove (x / bitmojiSize) (1 - y / bitmojiSize))
+                            (D.field "offsetX" D.float)
+                            (D.field "offsetY" D.float)
+                    ]
+                    [ viewAnchor Dance.A
+                        model.dance.aTimeMultiplier
+                        model.dance.aPhase
+                        model.dance.aTarget
+                        model.dance.aMovement
+                    , viewAnchor Dance.B
+                        model.dance.bTimeMultiplier
+                        model.dance.bPhase
+                        model.dance.bTarget
+                        model.dance.bMovement
+                    , viewAnchor Dance.C
+                        model.dance.cTimeMultiplier
+                        model.dance.cPhase
+                        model.dance.cTarget
+                        model.dance.cMovement
+                    , viewAnchor Dance.D
+                        model.dance.dTimeMultiplier
+                        model.dance.dPhase
+                        model.dance.dTarget
+                        model.dance.dMovement
+                    ]
             ]
         , fieldset []
             [ radio model Dance.lean (text "The Lean")
@@ -194,26 +236,17 @@ viewCanvas model =
             ]
 
 
-viewAnchor : Bool -> Float -> Float -> Vec2 -> Vec2 -> Html Msg
-viewAnchor show timeMultiplier phase target movement =
-    let
-        radius =
-            6
-    in
-    if not show then
-        text ""
-    else
-        span
-            [ style "position" "absolute"
-            , style "cursor" "move"
-            , style "border-radius" "50%"
-            , style "border" "2px solid #21cc8c"
-            , style "width" (px (2 * radius))
-            , style "height" (px (2 * radius))
-            , style "left" <| px (Math.Vector2.getX target * bitmojiSize - radius)
-            , style "top" <| px (bitmojiSize - Math.Vector2.getY target * bitmojiSize - radius)
-            ]
-            []
+viewAnchor : Dance.Anchor -> Float -> Float -> Vec2 -> Vec2 -> Svg Msg
+viewAnchor anchor timeMultiplier phase target movement =
+    Svg.ellipse
+        [ style "cursor" "move"
+        , cx <| String.fromFloat (Math.Vector2.getX target)
+        , cy <| String.fromFloat (1 - Math.Vector2.getY target)
+        , rx <| String.fromFloat <| Basics.max 0.04 (abs (Math.Vector2.getX movement)) / 5
+        , ry <| String.fromFloat <| Basics.max 0.04 (abs (Math.Vector2.getY movement)) / 5
+        , Html.Events.onMouseDown (StartAnchorMove anchor)
+        ]
+        []
 
 
 radio : Model -> Dance { comicId : String } -> Html Msg -> Html Msg
@@ -234,14 +267,14 @@ radio model this labelText =
 checkbox : (Bool -> msg) -> Bool -> Html msg -> Html msg
 checkbox toMsg value labelText =
     label []
-        [ input [ type_ "checkbox", checked value, onCheck toMsg ] []
+        [ input [ type_ "checkbox", checked value, Html.Events.onCheck toMsg ] []
         , labelText
         ]
 
 
 onChange : String -> msg -> Attribute msg
 onChange this msg =
-    on "change" <|
+    Html.Events.on "change" <|
         D.andThen
             (\x ->
                 if x == this then
@@ -312,9 +345,8 @@ fragmentShader =
         uniform float     time;
         uniform sampler2D bitmoji;
 
-        const float pi      = 3.14159265359;
-        const int animSteps = 60;
-        const vec2 animDist = vec2(0.003, 0.003);
+        const int animSteps  = 60;
+        const float animDist = 0.003;
 
         uniform float aTimeMultiplier;
         uniform float aPhase;
