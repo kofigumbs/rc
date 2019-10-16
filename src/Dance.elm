@@ -134,7 +134,7 @@ customize customization dance =
             { dance | bPhase = value }
 
         Target B value ->
-            { dance | bTarget = dance.bTarget }
+            { dance | bTarget = value }
 
         MovementX B value ->
             { dance | bMovement = Math.Vector2.setX value dance.bMovement }
@@ -149,7 +149,7 @@ customize customization dance =
             { dance | cPhase = value }
 
         Target C value ->
-            { dance | cTarget = dance.cTarget }
+            { dance | cTarget = value }
 
         MovementX C value ->
             { dance | cMovement = Math.Vector2.setX value dance.cMovement }
