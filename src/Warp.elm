@@ -2,6 +2,7 @@ port module Main exposing (main)
 
 import Browser
 import Browser.Events
+import Dance exposing (Dance)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (on, onCheck, onClick)
@@ -47,7 +48,7 @@ init () =
         , error = False
         , bitmoji = Nothing
         , userId = kofi
-        , dance = lean
+        , dance = Dance.lean
         , showAnchors = False
         }
 
@@ -118,7 +119,7 @@ subscriptions model =
 
 view : Model -> Html Msg
 view model =
-    main_ []
+    main_ [ style "max-width" (px bitmojiSize) ]
         [ div [ style "position" "relative" ]
             [ WebGL.toHtml [ width bitmojiSize, height bitmojiSize ] (viewCanvas model)
             , viewAnchor model.showAnchors
@@ -142,24 +143,22 @@ view model =
                 model.dance.dTarget
                 model.dance.dMovement
             ]
-        , div
-            [ class "warning"
-            , classList [ ( "hide", not model.error ) ]
-            ]
-            [ Html.text "That doesn't seem like a Bitmoji..." ]
-        , div []
-            [ radio model lean (text "The Lean")
-            , radio model disco (text "Disco Wave")
-            ]
-        , details [ class "instructions" ]
-            [ summary [] [ text "Customize" ]
-            , p []
-                [ text "1. Install the "
-                , a [ href chromeExtensionUrl, target "_blank" ]
-                    [ text "official Bitmoji Chrome extension" ]
-                ]
-            , p [] [ text "2. Drag-and-drop your Bitmoji here" ]
+        , fieldset []
+            [ radio model Dance.lean (text "The Lean")
+            , radio model Dance.disco (text "Disco Wave")
             , hr [] []
+            , strong [] [ text "Customize" ]
+            , showIf model.error <|
+                div [ class "warning" ]
+                    [ b [] [ Html.text "That doesn't seem like a Bitmoji..." ] ]
+            , ol []
+                [ li []
+                    [ text "Install the "
+                    , a [ href chromeExtensionUrl, target "_blank" ]
+                        [ text "official Bitmoji Chrome extension" ]
+                    ]
+                , li [] [ text "Drag-and-drop your Bitmoji here" ]
+                ]
             , checkbox SetShowAnchors model.showAnchors (text "Show Anchors")
             ]
         ]
@@ -258,6 +257,14 @@ px value =
     String.fromFloat value ++ "px"
 
 
+showIf : Bool -> Html msg -> Html msg
+showIf check el =
+    if check then
+        el
+    else
+        text ""
+
+
 
 -- MESH
 
@@ -352,120 +359,6 @@ fragmentShader =
             gl_FragColor = texture2D(bitmoji, img);
         }
     |]
-
-
-
--- ANIMATION
---
--- Choose which 4 points (a, b, c, d) to animate in the Bitmoji image!
---
---   Multiplier: rate of movement. Bigger means faster.
---   Phase: radians by which to offset movement. Bigger means more delayed.
---   Target: coordinates [0, 1]. Point to target.
---   Movement: distance in target coordinate system [0, 1]. How far to animate.
-
-
-type alias Dance a =
-    { a
-        | aTimeMultiplier : Float
-        , aPhase : Float
-        , aTarget : Vec2
-        , aMovement : Vec2
-        , bTimeMultiplier : Float
-        , bPhase : Float
-        , bTarget : Vec2
-        , bMovement : Vec2
-        , cTimeMultiplier : Float
-        , cPhase : Float
-        , cTarget : Vec2
-        , cMovement : Vec2
-        , dTimeMultiplier : Float
-        , dPhase : Float
-        , dTarget : Vec2
-        , dMovement : Vec2
-    }
-
-
-lean : Dance { comicId : String }
-lean =
-    { comicId = "49490f4e-eabb-4cab-bcb6-69f361d66706"
-
-    -- HEAD
-    , aTimeMultiplier = 16
-    , aPhase = -pi / 2
-    , aTarget = vec2 0.5 0.7
-    , aMovement = vec2 0 0.2
-
-    -- HIPS
-    , bTimeMultiplier = 8
-    , bPhase = 0
-    , bTarget = vec2 0.5 0.3
-    , bMovement = vec2 0.6 0
-
-    -- FEET
-    , cTimeMultiplier = 16
-    , cPhase = -pi / 2
-    , cTarget = vec2 0.5 0
-    , cMovement = vec2 0 0.1
-
-    -- ???
-    , dTimeMultiplier = 0
-    , dPhase = 0
-    , dTarget = vec2 0 0
-    , dMovement = vec2 0 0
-    }
-
-
-disco : Dance { comicId : String }
-disco =
-    { comicId = "5ee3832d-7743-43c8-b6d7-ea47f11a1798"
-
-    -- LEFT ARM
-    , aTimeMultiplier = 8
-    , aPhase = 0
-    , aTarget = vec2 0.1 0.6
-    , aMovement = vec2 0.2 0.3
-
-    -- HIPS
-    , bTimeMultiplier = 8
-    , bPhase = -pi / 2
-    , bTarget = vec2 0.5 0.3
-    , bMovement = vec2 0.5 -0.2
-
-    -- RIGHT ARM
-    , cTimeMultiplier = 8
-    , cPhase = -pi
-    , cTarget = vec2 0.7 0.4
-    , cMovement = vec2 0.3 0.5
-
-    -- HEAD
-    , dTimeMultiplier = 8
-    , dPhase = -pi / 2
-    , dTarget = vec2 0.45 0.7
-    , dMovement = vec2 0.05 -0.15
-    }
-
-
-customDefaults : Dance { comicId : String }
-customDefaults =
-    { comicId = ""
-    , aTimeMultiplier = 2
-    , aPhase = 0
-    , aTarget = vec2 0.2 0.2
-    , aMovement = vec2 0.1 0.1
-    , bTimeMultiplier = 4
-    , bPhase = 0
-    , bTarget = vec2 0.4 0.4
-    , bMovement = vec2 0.1 0.1
-    , cTimeMultiplier = 6
-    , cPhase = 0
-    , cTarget = vec2 0.6 0.6
-    , cMovement = vec2 0.1 0.1
-    , dTimeMultiplier = 8
-    , dPhase = 0
-    , dTarget = vec2 0.8 0.8
-    , dMovement = vec2 0.1 0.1
-    }
 
 
 

@@ -7,30 +7,12 @@
   <style>
     * {
       font-size: 16px;
-      font-weight: bold;
       font-family: sans-serif;
     }
 
-    html, body, p {
+    html, body {
       margin: 0;
       padding: 0;
-    }
-
-    main {
-      max-width: 398px;
-      margin: 0 auto;
-    }
-
-    canvas {
-      display: block;
-      margin-bottom: 20px
-    }
-
-    button {
-      border: none;
-      color: white;
-      background: teal;
-      border-radius: 4px;
     }
 
     label {
@@ -38,29 +20,19 @@
       padding: 4px 0;
     }
 
-    button:not(:last-child) {
-      margin-right: 4px;
+    hr, fieldset {
+      border-style: solid;
+      border-color: #21cc8c;
+      border-radius: 8px;
+      margin: 20px auto;
     }
 
-    .instructions {
-      color: white;
-      background: #21cc8c;
-      border-radius: 4px;
-      padding: 20px;
-    }
-
-    .warning {
-      color: red;
-      padding: 20px;
-    }
-
-    .hide {
-      display: none;
-    }
-
-    details[open]>summary:first-child {
-      margin-bottom: 20px;
-    }
+    main     { margin: 0 auto }
+    canvas   { display: block }
+    hr       { border-width: 2px }
+    fieldset { border-width: 4px }
+    .warning { color: red }
+    .hide    { display: none }
   </style>
 </head>
 <body>
