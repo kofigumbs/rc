@@ -191,7 +191,8 @@ view model =
                     ]
                 , li [] [ text "Drag-and-drop your Bitmoji here" ]
                 ]
-            , checkbox SetShowAnchors model.showAnchors (text "Show Anchors")
+            , checkbox SetShowAnchors model.showAnchors <|
+                span [] [ text "Edit dance ", em [] [ text "(requires mouse)" ] ]
             ]
         ]
 
