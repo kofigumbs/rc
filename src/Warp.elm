@@ -4,13 +4,13 @@ import Browser
 import Browser.Events
 import Dance exposing (Dance)
 import Html exposing (..)
-import Html.Attributes exposing (..)
+import Html.Attributes
 import Html.Events
 import Json.Decode as D
 import Math.Vector2 exposing (Vec2, vec2)
 import Math.Vector3 exposing (Vec3, vec3)
 import Svg exposing (Svg)
-import Svg.Attributes exposing (cx, cy, rx, ry, viewBox)
+import Svg.Attributes exposing (viewBox)
 import Task
 import WebGL exposing (Mesh, Shader)
 import WebGL.Texture exposing (Texture)
@@ -26,7 +26,7 @@ type alias Model =
     , userId : String
     , dance : Dance { comicId : String }
     , showAnchors : Bool
-    , moving : Maybe Dance.Anchor
+    , toCustomization : D.Decoder Dance.Customization
     }
 
 
@@ -53,7 +53,7 @@ init () =
         , userId = kofi
         , dance = Dance.lean
         , showAnchors = False
-        , moving = Nothing
+        , toCustomization = D.fail ""
         }
 
 
@@ -78,9 +78,9 @@ type Msg
     | NewBitmoji (Result D.Error ( String, String ))
     | SetDance (Dance { comicId : String })
     | SetShowAnchors Bool
-    | StartAnchorMove Dance.Anchor
-    | AnchorMove Float Float
-    | StopAnchorMove
+    | StartCustomization (D.Decoder Dance.Customization)
+    | Customize Dance.Customization
+    | StopCustomization
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -107,22 +107,14 @@ update msg ({ dance } as model) =
         SetShowAnchors showAnchors ->
             pure { model | showAnchors = showAnchors }
 
-        StartAnchorMove anchor ->
-            pure { model | moving = Just anchor }
+        StartCustomization toCustomization ->
+            pure { model | toCustomization = toCustomization }
 
-        AnchorMove x y ->
-            case model.moving of
-                Nothing ->
-                    pure model
+        Customize customization ->
+            pure { model | dance = Dance.customize customization dance }
 
-                Just anchor ->
-                    dance
-                        |> Dance.customize (Dance.TargetY anchor) y
-                        |> Dance.customize (Dance.TargetX anchor) x
-                        |> (\dance_ -> pure { model | dance = dance_ })
-
-        StopAnchorMove ->
-            pure { model | moving = Nothing }
+        StopCustomization ->
+            pure { model | toCustomization = D.fail "" }
 
 
 pure : a -> ( a, Cmd msg )
@@ -138,30 +130,28 @@ subscriptions model =
     Sub.batch
         [ imageDrop (NewBitmoji << D.decodeValue parseIds)
         , Browser.Events.onAnimationFrameDelta Diff
-        , if model.moving == Nothing then
-            Sub.none
-          else
-            Browser.Events.onMouseUp (D.succeed StopAnchorMove)
+        , Browser.Events.onMouseUp (D.succeed StopCustomization)
         ]
 
 
 view : Model -> Html Msg
 view model =
-    main_ [ style "max-width" (px bitmojiSize) ]
-        [ div [ style "position" "relative" ]
-            [ WebGL.toHtml [ width bitmojiSize, height bitmojiSize ] (viewCanvas model)
+    main_ [ Html.Attributes.style "max-width" (px bitmojiSize) ]
+        [ div [ Html.Attributes.style "position" "relative" ]
+            [ WebGL.toHtml
+                [ Html.Attributes.width bitmojiSize
+                , Html.Attributes.height bitmojiSize
+                ]
+                (viewCanvas model)
             , showIf model.showAnchors <|
                 Svg.svg
-                    [ style "position" "absolute"
-                    , style "top" "0"
-                    , style "left" "0"
-                    , width bitmojiSize
-                    , height bitmojiSize
-                    , viewBox "0 0 1 1"
-                    , Html.Events.on "mousemove" <|
-                        D.map2 (\x y -> AnchorMove (x / bitmojiSize) (1 - y / bitmojiSize))
-                            (D.field "offsetX" D.float)
-                            (D.field "offsetY" D.float)
+                    [ Html.Attributes.style "position" "absolute"
+                    , Html.Attributes.style "top" "0"
+                    , Html.Attributes.style "left" "0"
+                    , Html.Attributes.width bitmojiSize
+                    , Html.Attributes.height bitmojiSize
+                    , Svg.Attributes.viewBox "0 0 1 1"
+                    , Html.Events.on "mousemove" (D.map Customize model.toCustomization)
                     ]
                     [ viewAnchor Dance.A
                         model.dance.aTimeMultiplier
@@ -191,12 +181,12 @@ view model =
             , hr [] []
             , strong [] [ text "Customize" ]
             , showIf model.error <|
-                div [ class "warning" ]
+                div [ Html.Attributes.class "warning" ]
                     [ b [] [ Html.text "That doesn't seem like a Bitmoji..." ] ]
             , ol []
                 [ li []
                     [ text "Install the "
-                    , a [ href chromeExtensionUrl, target "_blank" ]
+                    , a [ Html.Attributes.href chromeExtensionUrl, Html.Attributes.target "_blank" ]
                         [ text "official Bitmoji Chrome extension" ]
                     ]
                 , li [] [ text "Drag-and-drop your Bitmoji here" ]
@@ -238,25 +228,69 @@ viewCanvas model =
 
 viewAnchor : Dance.Anchor -> Float -> Float -> Vec2 -> Vec2 -> Svg Msg
 viewAnchor anchor timeMultiplier phase target movement =
-    Svg.ellipse
-        [ style "cursor" "move"
-        , cx <| String.fromFloat (Math.Vector2.getX target)
-        , cy <| String.fromFloat (1 - Math.Vector2.getY target)
-        , rx <| String.fromFloat <| Basics.max 0.04 (abs (Math.Vector2.getX movement)) / 5
-        , ry <| String.fromFloat <| Basics.max 0.04 (abs (Math.Vector2.getY movement)) / 5
-        , Html.Events.onMouseDown (StartAnchorMove anchor)
+    let
+        x =
+            Math.Vector2.getX target
+
+        y =
+            1 - Math.Vector2.getY target
+
+        width =
+            Math.Vector2.getX movement
+
+        height =
+            Math.Vector2.getY movement
+    in
+    Svg.g []
+        [ Svg.path
+            [ Svg.Attributes.style "cursor:move"
+            , Html.Events.onMouseDown <|
+                StartCustomization <|
+                    D.map (Dance.Target anchor) (D.map2 vec2 offsetX offsetYInverse)
+            , Svg.Attributes.d <|
+                String.join " " <|
+                    List.map (String.join " ") <|
+                        -- cross centered at target
+                        [ [ "M", String.fromFloat x, String.fromFloat y ]
+                        , [ "v", String.fromFloat (-height / 2) ]
+                        , [ "v", String.fromFloat height ]
+                        , [ "v", String.fromFloat (-height / 2) ]
+                        , [ "h", String.fromFloat (-width / 2) ]
+                        , [ "h", String.fromFloat width ]
+                        ]
+            ]
+            []
+        , Svg.circle
+            [ Svg.Attributes.style "cursor:ns-resize"
+            , Svg.Attributes.r "0.01"
+            , Svg.Attributes.cx <| String.fromFloat x
+            , Svg.Attributes.cy <| String.fromFloat (y + height / 2)
+            , Html.Events.onMouseDown <|
+                StartCustomization <|
+                    D.map (Dance.MovementY anchor << distance y) offsetY
+            ]
+            []
+        , Svg.circle
+            [ Svg.Attributes.style "cursor:ew-resize"
+            , Svg.Attributes.r "0.01"
+            , Svg.Attributes.cx <| String.fromFloat (x + width / 2)
+            , Svg.Attributes.cy <| String.fromFloat y
+            , Html.Events.onMouseDown <|
+                StartCustomization <|
+                    D.map (Dance.MovementX anchor << distance x) offsetX
+            ]
+            []
         ]
-        []
 
 
 radio : Model -> Dance { comicId : String } -> Html Msg -> Html Msg
 radio model this labelText =
     label []
         [ input
-            [ name "radio"
-            , type_ "radio"
-            , value this.comicId
-            , checked (this.comicId == model.dance.comicId)
+            [ Html.Attributes.name "radio"
+            , Html.Attributes.type_ "radio"
+            , Html.Attributes.value this.comicId
+            , Html.Attributes.checked (this.comicId == model.dance.comicId)
             , onChange this.comicId (SetDance this)
             ]
             []
@@ -267,7 +301,12 @@ radio model this labelText =
 checkbox : (Bool -> msg) -> Bool -> Html msg -> Html msg
 checkbox toMsg value labelText =
     label []
-        [ input [ type_ "checkbox", checked value, Html.Events.onCheck toMsg ] []
+        [ input
+            [ Html.Attributes.type_ "checkbox"
+            , Html.Attributes.checked value
+            , Html.Events.onCheck toMsg
+            ]
+            []
         , labelText
         ]
 
@@ -296,6 +335,26 @@ showIf check el =
         el
     else
         text ""
+
+
+offsetX : D.Decoder Float
+offsetX =
+    D.map (\x -> x / bitmojiSize) (D.field "offsetX" D.float)
+
+
+offsetY : D.Decoder Float
+offsetY =
+    D.map (\y -> y / bitmojiSize) (D.field "offsetY" D.float)
+
+
+offsetYInverse : D.Decoder Float
+offsetYInverse =
+    D.map (\y -> 1 - y) offsetY
+
+
+distance : Float -> Float -> Float
+distance center offset =
+    (offset - center) * 2
 
 
 

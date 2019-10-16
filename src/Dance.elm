@@ -59,7 +59,7 @@ lean =
     -- ???
     , dTimeMultiplier = 0
     , dPhase = 0
-    , dTarget = vec2 0 0
+    , dTarget = vec2 0.2 0.2
     , dMovement = vec2 0 0
     }
 
@@ -95,12 +95,11 @@ disco =
 
 
 type Customization
-    = TimeMultiplier Anchor
-    | Phase Anchor
-    | TargetX Anchor
-    | TargetY Anchor
-    | MovementX Anchor
-    | MovementY Anchor
+    = TimeMultiplier Anchor Float
+    | Phase Anchor Float
+    | Target Anchor Vec2
+    | MovementX Anchor Float
+    | MovementY Anchor Float
 
 
 type Anchor
@@ -110,106 +109,65 @@ type Anchor
     | D
 
 
-customizations : List ( Customization, Dance a -> Float )
-customizations =
-    [ ( TimeMultiplier A, .aTimeMultiplier )
-    , ( Phase A, .aPhase )
-    , ( TargetX A, .aTarget >> Math.Vector2.getX )
-    , ( TargetY A, .aTarget >> Math.Vector2.getY )
-    , ( MovementX A, .aMovement >> Math.Vector2.getX )
-    , ( MovementY A, .aMovement >> Math.Vector2.getY )
-    , ( TimeMultiplier B, .bTimeMultiplier )
-    , ( Phase B, .bPhase )
-    , ( TargetX B, .bTarget >> Math.Vector2.getX )
-    , ( TargetY B, .bTarget >> Math.Vector2.getY )
-    , ( MovementX B, .bMovement >> Math.Vector2.getX )
-    , ( MovementY B, .bMovement >> Math.Vector2.getY )
-    , ( TimeMultiplier C, .cTimeMultiplier )
-    , ( Phase C, .cPhase )
-    , ( TargetX C, .cTarget >> Math.Vector2.getX )
-    , ( TargetY C, .cTarget >> Math.Vector2.getY )
-    , ( MovementX C, .cMovement >> Math.Vector2.getX )
-    , ( MovementY C, .cMovement >> Math.Vector2.getY )
-    , ( TimeMultiplier D, .dTimeMultiplier )
-    , ( Phase D, .dPhase )
-    , ( TargetX D, .dTarget >> Math.Vector2.getX )
-    , ( TargetY D, .dTarget >> Math.Vector2.getY )
-    , ( MovementX D, .dMovement >> Math.Vector2.getX )
-    , ( MovementY D, .dMovement >> Math.Vector2.getY )
-    ]
-
-
-customize : Customization -> Float -> Dance a -> Dance a
-customize customization value dance =
+customize : Customization -> Dance a -> Dance a
+customize customization dance =
     case customization of
-        TimeMultiplier A ->
+        TimeMultiplier A value ->
             { dance | aTimeMultiplier = value }
 
-        Phase A ->
+        Phase A value ->
             { dance | aPhase = value }
 
-        TargetX A ->
-            { dance | aTarget = Math.Vector2.setX value dance.aTarget }
+        Target A value ->
+            { dance | aTarget = value }
 
-        TargetY A ->
-            { dance | aTarget = Math.Vector2.setY value dance.aTarget }
-
-        MovementX A ->
+        MovementX A value ->
             { dance | aMovement = Math.Vector2.setX value dance.aMovement }
 
-        MovementY A ->
+        MovementY A value ->
             { dance | aMovement = Math.Vector2.setY value dance.aMovement }
 
-        TimeMultiplier B ->
+        TimeMultiplier B value ->
             { dance | bTimeMultiplier = value }
 
-        Phase B ->
+        Phase B value ->
             { dance | bPhase = value }
 
-        TargetX B ->
-            { dance | bTarget = Math.Vector2.setX value dance.bTarget }
+        Target B value ->
+            { dance | bTarget = dance.bTarget }
 
-        TargetY B ->
-            { dance | bTarget = Math.Vector2.setY value dance.bTarget }
-
-        MovementX B ->
+        MovementX B value ->
             { dance | bMovement = Math.Vector2.setX value dance.bMovement }
 
-        MovementY B ->
+        MovementY B value ->
             { dance | bMovement = Math.Vector2.setY value dance.bMovement }
 
-        TimeMultiplier C ->
+        TimeMultiplier C value ->
             { dance | cTimeMultiplier = value }
 
-        Phase C ->
+        Phase C value ->
             { dance | cPhase = value }
 
-        TargetX C ->
-            { dance | cTarget = Math.Vector2.setX value dance.cTarget }
+        Target C value ->
+            { dance | cTarget = dance.cTarget }
 
-        TargetY C ->
-            { dance | cTarget = Math.Vector2.setY value dance.cTarget }
-
-        MovementX C ->
+        MovementX C value ->
             { dance | cMovement = Math.Vector2.setX value dance.cMovement }
 
-        MovementY C ->
+        MovementY C value ->
             { dance | cMovement = Math.Vector2.setY value dance.cMovement }
 
-        TimeMultiplier D ->
+        TimeMultiplier D value ->
             { dance | dTimeMultiplier = value }
 
-        Phase D ->
+        Phase D value ->
             { dance | dPhase = value }
 
-        TargetX D ->
-            { dance | dTarget = Math.Vector2.setX value dance.dTarget }
+        Target D value ->
+            { dance | dTarget = value }
 
-        TargetY D ->
-            { dance | dTarget = Math.Vector2.setY value dance.dTarget }
-
-        MovementX D ->
+        MovementX D value ->
             { dance | dMovement = Math.Vector2.setX value dance.dMovement }
 
-        MovementY D ->
+        MovementY D value ->
             { dance | dMovement = Math.Vector2.setY value dance.dMovement }
