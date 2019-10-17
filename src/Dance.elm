@@ -39,28 +39,28 @@ lean =
     { comicId = "49490f4e-eabb-4cab-bcb6-69f361d66706"
 
     -- HEAD
-    , aTimeMultiplier = 16
-    , aPhase = -pi / 2
+    , aTimeMultiplier = 0.16
+    , aPhase = -1 / 2
     , aTarget = vec2 0.5 0.7
     , aMovement = vec2 0 0.2
 
     -- HIPS
-    , bTimeMultiplier = 8
+    , bTimeMultiplier = 0.08
     , bPhase = 0
     , bTarget = vec2 0.5 0.3
     , bMovement = vec2 0.6 0
 
     -- FEET
-    , cTimeMultiplier = 16
-    , cPhase = -pi / 2
-    , cTarget = vec2 0.5 0
+    , cTimeMultiplier = 0.16
+    , cPhase = -1 / 2
+    , cTarget = vec2 0.5 0.1
     , cMovement = vec2 0 0.1
 
     -- ???
-    , dTimeMultiplier = 0
-    , dPhase = 0
+    , dTimeMultiplier = 0.1
+    , dPhase = 0.1
     , dTarget = vec2 0.2 0.2
-    , dMovement = vec2 0 0
+    , dMovement = vec2 0.1 0.1
     }
 
 
@@ -69,26 +69,26 @@ disco =
     { comicId = "5ee3832d-7743-43c8-b6d7-ea47f11a1798"
 
     -- LEFT ARM
-    , aTimeMultiplier = 8
+    , aTimeMultiplier = 0.08
     , aPhase = 0
     , aTarget = vec2 0.1 0.6
     , aMovement = vec2 0.2 0.3
 
     -- HIPS
-    , bTimeMultiplier = 8
-    , bPhase = -pi / 2
+    , bTimeMultiplier = 0.08
+    , bPhase = -1 / 2
     , bTarget = vec2 0.5 0.3
     , bMovement = vec2 0.5 -0.2
 
     -- RIGHT ARM
-    , cTimeMultiplier = 8
-    , cPhase = -pi
+    , cTimeMultiplier = 0.08
+    , cPhase = -1
     , cTarget = vec2 0.7 0.4
     , cMovement = vec2 0.3 0.5
 
     -- HEAD
-    , dTimeMultiplier = 8
-    , dPhase = -pi / 2
+    , dTimeMultiplier = 0.08
+    , dPhase = -1 / 2
     , dTarget = vec2 0.45 0.7
     , dMovement = vec2 0.05 -0.15
     }

@@ -25,9 +25,14 @@ type alias Model =
     , bitmoji : Maybe Texture
     , userId : String
     , dance : Dance { comicId : String }
-    , showAnchors : Bool
+    , editMode : Maybe EditMode
     , toCustomization : D.Decoder Dance.Customization
     }
+
+
+type EditMode
+    = MovingAnchors
+    | EditingTiming
 
 
 main : Program () Model Msg
@@ -52,7 +57,7 @@ init () =
         , bitmoji = Nothing
         , userId = kofi
         , dance = Dance.lean
-        , showAnchors = False
+        , editMode = Nothing
         , toCustomization = D.fail ""
         }
 
@@ -77,7 +82,7 @@ type Msg
     | GotBitmoji (Result WebGL.Texture.Error Texture)
     | NewBitmoji (Result D.Error ( String, String ))
     | SetDance (Dance { comicId : String })
-    | SetShowAnchors Bool
+    | SetEditMode (Maybe EditMode)
     | StartCustomization (D.Decoder Dance.Customization)
     | Customize Dance.Customization
     | StopCustomization
@@ -104,8 +109,8 @@ update msg ({ dance } as model) =
         SetDance dance_ ->
             load { model | dance = dance_ }
 
-        SetShowAnchors showAnchors ->
-            pure { model | showAnchors = showAnchors }
+        SetEditMode editMode ->
+            pure { model | editMode = editMode }
 
         StartCustomization toCustomization ->
             pure { model | toCustomization = toCustomization }
@@ -143,43 +148,56 @@ view model =
                 , Html.Attributes.height bitmojiSize
                 ]
                 (viewCanvas model)
-            , showIf model.showAnchors <|
-                Svg.svg
-                    [ Html.Attributes.style "position" "absolute"
-                    , Html.Attributes.style "top" "0"
-                    , Html.Attributes.style "left" "0"
-                    , Html.Attributes.width bitmojiSize
-                    , Html.Attributes.height bitmojiSize
-                    , Svg.Attributes.viewBox "0 0 1 1"
-                    , Html.Events.on "mousemove" (D.map Customize model.toCustomization)
-                    ]
-                    [ viewAnchor Dance.A
-                        model.dance.aTimeMultiplier
-                        model.dance.aPhase
-                        model.dance.aTarget
-                        model.dance.aMovement
-                    , viewAnchor Dance.B
-                        model.dance.bTimeMultiplier
-                        model.dance.bPhase
-                        model.dance.bTarget
-                        model.dance.bMovement
-                    , viewAnchor Dance.C
-                        model.dance.cTimeMultiplier
-                        model.dance.cPhase
-                        model.dance.cTarget
-                        model.dance.cMovement
-                    , viewAnchor Dance.D
-                        model.dance.dTimeMultiplier
-                        model.dance.dPhase
-                        model.dance.dTarget
-                        model.dance.dMovement
-                    ]
+            , case model.editMode of
+                Nothing ->
+                    text ""
+
+                Just editMode ->
+                    Svg.svg
+                        [ Html.Attributes.style "position" "absolute"
+                        , Html.Attributes.style "top" "0"
+                        , Html.Attributes.style "left" "0"
+                        , Html.Attributes.width bitmojiSize
+                        , Html.Attributes.height bitmojiSize
+                        , Svg.Attributes.viewBox "0 0 1 1"
+                        , Html.Events.on "mousemove" (D.map Customize model.toCustomization)
+                        ]
+                        [ viewAnchor editMode
+                            Dance.A
+                            model.dance.aTimeMultiplier
+                            model.dance.aPhase
+                            model.dance.aTarget
+                            model.dance.aMovement
+                        , viewAnchor editMode
+                            Dance.B
+                            model.dance.bTimeMultiplier
+                            model.dance.bPhase
+                            model.dance.bTarget
+                            model.dance.bMovement
+                        , viewAnchor editMode
+                            Dance.C
+                            model.dance.cTimeMultiplier
+                            model.dance.cPhase
+                            model.dance.cTarget
+                            model.dance.cMovement
+                        , viewAnchor editMode
+                            Dance.D
+                            model.dance.dTimeMultiplier
+                            model.dance.dPhase
+                            model.dance.dTarget
+                            model.dance.dMovement
+                        ]
             ]
         , fieldset []
-            [ radio model Dance.lean (text "The Lean")
-            , radio model Dance.disco (text "Disco Wave")
+            [ radio "presets" SetDance .comicId model.dance <|
+                [ ( Dance.lean, "The Lean" )
+                , ( Dance.disco, "Disco Wave" )
+                ]
             , hr [] []
-            , strong [] [ text "Customize" ]
+            , span []
+                [ strong [] [ text "Customize" ]
+                , em [] [ text " (requires mouse)" ]
+                ]
             , showIf model.error <|
                 div [ Html.Attributes.class "warning" ]
                     [ b [] [ Html.text "That doesn't seem like a Bitmoji..." ] ]
@@ -191,8 +209,11 @@ view model =
                     ]
                 , li [] [ text "Drag-and-drop your Bitmoji here" ]
                 ]
-            , checkbox SetShowAnchors model.showAnchors <|
-                span [] [ text "Edit dance ", em [] [ text "(requires mouse)" ] ]
+            , radio "edit" SetEditMode Debug.toString model.editMode <|
+                [ ( Nothing, "Hide controls" )
+                , ( Just MovingAnchors, "Move anchors" )
+                , ( Just EditingTiming, "Edit timing" )
+                ]
             ]
         ]
 
@@ -227,8 +248,8 @@ viewCanvas model =
             ]
 
 
-viewAnchor : Dance.Anchor -> Float -> Float -> Vec2 -> Vec2 -> Svg Msg
-viewAnchor anchor timeMultiplier phase target movement =
+viewAnchor : EditMode -> Dance.Anchor -> Float -> Float -> Vec2 -> Vec2 -> Svg Msg
+viewAnchor editMode anchor timeMultiplier phase target movement =
     let
         x =
             Math.Vector2.getX target
@@ -242,16 +263,40 @@ viewAnchor anchor timeMultiplier phase target movement =
         height =
             Math.Vector2.getY movement
     in
-    Svg.g []
-        [ Svg.path
-            [ Svg.Attributes.style "cursor:move"
-            , Html.Events.onMouseDown <|
-                StartCustomization <|
-                    D.map (Dance.Target anchor) (D.map2 vec2 offsetX offsetYInverse)
-            , Svg.Attributes.d <|
+    Svg.g [] <|
+        case editMode of
+            MovingAnchors ->
+                [ crossPath x y width height <|
+                    [ Svg.Attributes.style "cursor:move"
+                    , customizeOnMouseDown <|
+                        D.map (Dance.Target anchor) (D.map2 vec2 offsetX offsetYInverse)
+                    ]
+                , verticalAxis x y height <|
+                    customizeOnMouseDown <|
+                        D.map (Dance.MovementY anchor << distance y) offsetY
+                , horizontalAxis x y width <|
+                    customizeOnMouseDown <|
+                        D.map (Dance.MovementX anchor << distance x) offsetX
+                ]
+
+            EditingTiming ->
+                [ crossPath x y phase timeMultiplier []
+                , verticalAxis x y timeMultiplier <|
+                    customizeOnMouseDown <|
+                        D.map (Dance.TimeMultiplier anchor << distance y) offsetY
+                , horizontalAxis x y phase <|
+                    customizeOnMouseDown <|
+                        D.map (Dance.Phase anchor << distance x) offsetX
+                ]
+
+
+crossPath : Float -> Float -> Float -> Float -> List (Attribute msg) -> Svg msg
+crossPath x y width height attrs =
+    let
+        d =
+            Svg.Attributes.d <|
                 String.join " " <|
                     List.map (String.join " ") <|
-                        -- cross centered at target
                         [ [ "M", String.fromFloat x, String.fromFloat y ]
                         , [ "v", String.fromFloat (-height / 2) ]
                         , [ "v", String.fromFloat height ]
@@ -259,57 +304,52 @@ viewAnchor anchor timeMultiplier phase target movement =
                         , [ "h", String.fromFloat (-width / 2) ]
                         , [ "h", String.fromFloat width ]
                         ]
-            ]
-            []
-        , Svg.circle
-            [ Svg.Attributes.style "cursor:ns-resize"
-            , Svg.Attributes.r "0.01"
-            , Svg.Attributes.cx <| String.fromFloat x
-            , Svg.Attributes.cy <| String.fromFloat (y + height / 2)
-            , Html.Events.onMouseDown <|
-                StartCustomization <|
-                    D.map (Dance.MovementY anchor << distance y) offsetY
-            ]
-            []
-        , Svg.circle
-            [ Svg.Attributes.style "cursor:ew-resize"
-            , Svg.Attributes.r "0.01"
-            , Svg.Attributes.cx <| String.fromFloat (x + width / 2)
-            , Svg.Attributes.cy <| String.fromFloat y
-            , Html.Events.onMouseDown <|
-                StartCustomization <|
-                    D.map (Dance.MovementX anchor << distance x) offsetX
-            ]
-            []
+    in
+    Svg.path (d :: attrs) []
+
+
+verticalAxis : Float -> Float -> Float -> Attribute msg -> Svg msg
+verticalAxis centerX centerY value attr =
+    Svg.circle
+        [ Svg.Attributes.style "cursor:ns-resize"
+        , Svg.Attributes.r "0.01"
+        , Svg.Attributes.cx <| String.fromFloat centerX
+        , Svg.Attributes.cy <| String.fromFloat (centerY + value / 2)
+        , attr
         ]
+        []
 
 
-radio : Model -> Dance { comicId : String } -> Html Msg -> Html Msg
-radio model this labelText =
-    label []
-        [ input
-            [ Html.Attributes.name "radio"
-            , Html.Attributes.type_ "radio"
-            , Html.Attributes.value this.comicId
-            , Html.Attributes.checked (this.comicId == model.dance.comicId)
-            , onChange this.comicId (SetDance this)
-            ]
-            []
-        , labelText
+horizontalAxis : Float -> Float -> Float -> Attribute msg -> Svg msg
+horizontalAxis centerX centerY value attr =
+    Svg.circle
+        [ Svg.Attributes.style "cursor:ew-resize"
+        , Svg.Attributes.r "0.01"
+        , Svg.Attributes.cx <| String.fromFloat (centerX + value / 2)
+        , Svg.Attributes.cy <| String.fromFloat centerY
+        , attr
         ]
+        []
 
 
-checkbox : (Bool -> msg) -> Bool -> Html msg -> Html msg
-checkbox toMsg value labelText =
-    label []
-        [ input
-            [ Html.Attributes.type_ "checkbox"
-            , Html.Attributes.checked value
-            , Html.Events.onCheck toMsg
-            ]
-            []
-        , labelText
-        ]
+radio : String -> (a -> msg) -> (a -> String) -> a -> List ( a, String ) -> Html msg
+radio name toMsg getter value options =
+    let
+        radio_ ( thisValue, thisLabel ) =
+            label []
+                [ input
+                    [ Html.Attributes.name name
+                    , Html.Attributes.type_ "radio"
+                    , Html.Attributes.value (getter thisValue)
+                    , Html.Attributes.checked (getter thisValue == getter value)
+                    , onChange (getter thisValue) (toMsg thisValue)
+                    ]
+                    []
+                , text " "
+                , text thisLabel
+                ]
+    in
+    div [] <| List.map radio_ options
 
 
 onChange : String -> msg -> Attribute msg
@@ -323,6 +363,11 @@ onChange this msg =
                     D.fail ""
             )
             Html.Events.targetValue
+
+
+customizeOnMouseDown : D.Decoder Dance.Customization -> Attribute Msg
+customizeOnMouseDown decoder =
+    Html.Events.onMouseDown <| StartCustomization decoder
 
 
 px : Float -> String
@@ -405,8 +450,9 @@ fragmentShader =
         uniform float     time;
         uniform sampler2D bitmoji;
 
-        const int animSteps  = 60;
-        const float animDist = 0.003;
+        const int   animSteps = 60;
+        const float animDist  = 0.003;
+        const float pi        = 3.141592653589793;
 
         uniform float aTimeMultiplier;
         uniform float aPhase;
@@ -443,10 +489,10 @@ fragmentShader =
             vec2 uv = vFragCoord;
             vec2 img = vec2(uv);
 
-            img += dance(sin(time*aTimeMultiplier + aPhase), uv, aTarget, aMovement);
-            img += dance(sin(time*bTimeMultiplier + bPhase), uv, bTarget, bMovement);
-            img += dance(sin(time*cTimeMultiplier + cPhase), uv, cTarget, cMovement);
-            img += dance(sin(time*dTimeMultiplier + dPhase), uv, dTarget, dMovement);
+            img += dance(sin(time*aTimeMultiplier*100. + aPhase*pi), uv, aTarget, aMovement);
+            img += dance(sin(time*bTimeMultiplier*100. + bPhase*pi), uv, bTarget, bMovement);
+            img += dance(sin(time*cTimeMultiplier*100. + cPhase*pi), uv, cTarget, cMovement);
+            img += dance(sin(time*dTimeMultiplier*100. + dPhase*pi), uv, dTarget, dMovement);
 
             gl_FragColor = texture2D(bitmoji, img);
         }
