@@ -189,7 +189,7 @@ view model =
                         ]
             ]
         , fieldset []
-            [ radio "presets" SetDance .comicId model.dance <|
+            [ radio "presets" SetDance model.dance <|
                 [ ( Dance.lean, "The Lean" )
                 , ( Dance.disco, "Disco Wave" )
                 ]
@@ -209,7 +209,7 @@ view model =
                     ]
                 , li [] [ text "Drag-and-drop your Bitmoji here" ]
                 ]
-            , radio "edit" SetEditMode Debug.toString model.editMode <|
+            , radio "edit" SetEditMode model.editMode <|
                 [ ( Nothing, "Hide controls" )
                 , ( Just MovingAnchors, "Move anchors" )
                 , ( Just EditingTiming, "Edit timing" )
@@ -332,17 +332,17 @@ horizontalAxis centerX centerY value attr =
         []
 
 
-radio : String -> (a -> msg) -> (a -> String) -> a -> List ( a, String ) -> Html msg
-radio name toMsg getter value options =
+radio : String -> (a -> msg) -> a -> List ( a, String ) -> Html msg
+radio name toMsg value options =
     let
         radio_ ( thisValue, thisLabel ) =
             label []
                 [ input
                     [ Html.Attributes.name name
                     , Html.Attributes.type_ "radio"
-                    , Html.Attributes.value (getter thisValue)
-                    , Html.Attributes.checked (getter thisValue == getter value)
-                    , onChange (getter thisValue) (toMsg thisValue)
+                    , Html.Attributes.value thisLabel
+                    , Html.Attributes.checked (thisValue == value)
+                    , onChange thisLabel (toMsg thisValue)
                     ]
                     []
                 , text " "
