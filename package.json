@@ -2,10 +2,14 @@
   "name": "RC",
   "description": "Recurse Center",
   "version": "1.0.0",
-  "repository": "github.com/hkgumbs/trainervision.git",
+  "repository": "github.com/hkgumbs/rc.git",
   "author": "",
   "license": "UNLICENSED",
+  "scripts": {
+    "start": "make && node server.js"
+  },
   "dependencies": {
-    "elm": "0.19.0-no-deps"
+    "elm": "0.19.0",
+    "express": "^4.17.1"
   }
 }
