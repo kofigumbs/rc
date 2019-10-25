@@ -13,6 +13,7 @@ bin/elm:
 	mv elm bin
 
 elm:
-	elm make src/Cgol.elm  ${ELM_MAKE_FLAGS} --output build/animated-svg-cgol.html
-	elm make src/Floss.elm ${ELM_MAKE_FLAGS} --output build/bathroom-floss.html
-	elm make src/Warp.elm  ${ELM_MAKE_FLAGS} --output build/bitmoji-warp/elm.js
+	elm make src/Cgol.elm        ${ELM_MAKE_FLAGS} --output build/animated-svg-cgol.html
+	elm make src/Floss.elm       ${ELM_MAKE_FLAGS} --output build/bathroom-floss.html
+	elm make src/Warp.elm        ${ELM_MAKE_FLAGS} --output build/bitmoji-warp/elm.js
+	elm make src/Visualizer.elm  ${ELM_MAKE_FLAGS} --output build/vizualizer.html
