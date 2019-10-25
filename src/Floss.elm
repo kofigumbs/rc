@@ -1,4 +1,4 @@
-module Main exposing (..)
+module Floss exposing (..)
 
 import Browser
 import Browser.Events

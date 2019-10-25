@@ -1,4 +1,4 @@
-module Main exposing (..)
+module Cgol exposing (..)
 
 import Browser
 import Browser.Events

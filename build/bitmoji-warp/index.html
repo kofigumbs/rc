@@ -47,7 +47,7 @@
 <div id="elm"></div>
 <script src="elm.js"></script>
 <script>
-  const app = Elm.Main.init({ node: window.elm, flags: {} });
+  const app = Elm.Warp.init({ node: window.elm, flags: {} });
   requestAnimationFrame(function() {
     window.addEventListener("dragover", function(event) {
       event.preventDefault();
