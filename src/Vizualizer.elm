@@ -6,6 +6,7 @@ import Browser
 import Browser.Events
 import Camera3d
 import Color
+import Dict exposing (Dict)
 import Direction3d
 import Html exposing (Html)
 import Json.Decode as D
@@ -32,26 +33,28 @@ main =
 
 
 type alias Model =
-    { activeKeys : List Int
+    { activeKeys : Dict Int Envelope
     }
+
+
+type Envelope
+    = Sustained
+    | Releasing Float
 
 
 init : () -> ( Model, Cmd Msg )
 init () =
-    ( { activeKeys = [] }, Cmd.none )
+    ( { activeKeys = Dict.empty }, Cmd.none )
 
 
 type Msg
-    = GotKeyDown Int
+    = Diff Float
+    | GotKeyDown Int
     | GotKeyUp Int
 
 
 upper =
     [ 81, 50, 87, 51, 69, 82, 53, 84, 54, 89, 55, 85, 73, 57, 79, 48, 80, 219, 187, 221 ]
-
-
-lower =
-    [ 90, 83, 88, 68, 67, 86, 71, 66, 72, 78, 74, 77, 188, 76, 190, 186, 191 ]
 
 
 indexOf : a -> List a -> Int
@@ -74,19 +77,28 @@ indexOf value =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        Diff time ->
+            ( { model
+                | activeKeys =
+                    Dict.map
+                        (\k v ->
+                            case v of
+                                Sustained ->
+                                    Sustained
+
+                                Releasing t ->
+                                    Releasing (max 0 (t - time))
+                        )
+                        model.activeKeys
+              }
+            , Cmd.none
+            )
+
         GotKeyDown code ->
-            let
-                _ =
-                    Debug.log "code:down" code
-            in
-            ( { model | activeKeys = code :: model.activeKeys }, Cmd.none )
+            ( { model | activeKeys = Dict.insert code Sustained model.activeKeys }, Cmd.none )
 
         GotKeyUp code ->
-            let
-                _ =
-                    Debug.log "code:up" code
-            in
-            ( { model | activeKeys = List.filter ((/=) code) model.activeKeys }, Cmd.none )
+            ( { model | activeKeys = Dict.insert code (Releasing 750) model.activeKeys }, Cmd.none )
 
 
 subscriptions : Model -> Sub Msg
@@ -94,6 +106,7 @@ subscriptions model =
     Sub.batch
         [ Browser.Events.onKeyDown (D.map GotKeyDown (D.field "which" D.int))
         , Browser.Events.onKeyUp (D.map GotKeyUp (D.field "which" D.int))
+        , Browser.Events.onAnimationFrameDelta Diff
         ]
 
 
@@ -135,10 +148,10 @@ view model =
                 , clipDepth = Length.meters 0.1
                 }
 
-        square =
+        square alpha =
             Drawable.group
-                [ Drawable.colored Color.orange mesh1
-                , Drawable.colored Color.blue mesh2
+                [ Drawable.colored (Color.hsl 0 1 (1 - alpha / 2)) mesh1
+                , Drawable.colored (Color.hsl 0.94 1 (1 - alpha / 2)) mesh2
                 ]
 
         rotationAxis =
@@ -151,10 +164,15 @@ view model =
                     (Angle.degrees 360)
 
         rotatedSquare activeKeys index angle =
-            if List.any (\key -> modBy 12 (indexOf key upper) == index) activeKeys then
-                square |> Drawable.rotateAround rotationAxis angle
-            else
-                Drawable.empty
+            case List.filter (\( key, value ) -> modBy 12 (indexOf key upper) == index) (Dict.toList activeKeys) of
+                [] ->
+                    Drawable.empty
+
+                ( _, Sustained ) :: _ ->
+                    square 1 |> Drawable.rotateAround rotationAxis angle
+
+                ( _, Releasing env ) :: _ ->
+                    square (env / 750) |> Drawable.rotateAround rotationAxis angle
     in
     Scene3d.unlit []
         { camera = camera
