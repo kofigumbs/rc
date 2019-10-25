@@ -1,0 +1,3 @@
+[submodule "elm-3d-scene"]
+	path = elm-3d-scene
+	url = https://github.com/ianmackenzie/elm-3d-scene
