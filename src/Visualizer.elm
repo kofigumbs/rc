@@ -16,6 +16,7 @@ import Point3d
 import Quantity
 import Scene3d
 import Scene3d.Drawable as Drawable exposing (Drawable)
+import Scene3d.Mesh as Mesh exposing (Mesh)
 import Scene3d.Shape as Shape
 import Triangle3d
 import Viewpoint3d
@@ -32,7 +33,8 @@ main =
 
 
 type alias Model =
-    { width : Float
+    { time : Float
+    , width : Float
     , height : Float
     , channels : Array Float
     }
@@ -49,7 +51,8 @@ type alias Flags =
 
 init : Flags -> ( Model, Cmd Msg )
 init flags =
-    ( { width = flags.width
+    ( { time = 0
+      , width = flags.width
       , height = flags.height
       , channels = Array.repeat trackCount 0
       }
@@ -67,7 +70,12 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         Diff time ->
-            ( { model | channels = Array.map ((+) -time) model.channels }, Cmd.none )
+            ( { model
+                | time = model.time + time
+                , channels = Array.map ((+) -time) model.channels
+              }
+            , Cmd.none
+            )
 
         Resize width height ->
             ( { model | width = toFloat width, height = toFloat height }, Cmd.none )
@@ -105,6 +113,11 @@ trackCount =
     List.length trackColors
 
 
+baseRotationSpeed : number
+baseRotationSpeed =
+    450
+
+
 trackColors : List Color
 trackColors =
     [ Color.red
@@ -136,7 +149,11 @@ view model =
         viewpoint =
             Viewpoint3d.lookAt
                 { focalPoint = Point3d.meters 0 0 0
-                , eyePoint = Point3d.meters 0 10 10
+                , eyePoint =
+                    Point3d.meters
+                        (cos (model.time / 2 / baseRotationSpeed) * 5)
+                        (sin (model.time / 3 / baseRotationSpeed) * 5)
+                        (sin (model.time / 2 / baseRotationSpeed) * 5)
                 , upDirection = Direction3d.y
                 }
 
@@ -147,7 +164,7 @@ view model =
                 , clipDepth = Length.meters 0.1
                 }
     in
-    Scene3d.unlit []
+    Scene3d.unlit [ Scene3d.clearColor Color.black ]
         { camera = camera
         , width = Pixels.pixels model.width
         , height = Pixels.pixels model.height
@@ -162,18 +179,18 @@ drawTrack offset base countdown =
             Color.toHsla base
 
         color =
-            Color.hsl hue saturation (1 - countdown / holdTime / 2)
+            Color.hsl hue saturation (countdown / holdTime / 2)
     in
     Drawable.colored color mesh
-        |> Drawable.translateIn Direction3d.x
+        |> Drawable.translateIn (Direction3d.xz (Angle.degrees -45))
             (Length.meters
                 (toFloat offset - ((toFloat trackCount - 1) / 2))
             )
 
 
+mesh : Mesh a (Mesh.Triangles Mesh.WithNormals Mesh.NoUV Mesh.NoTangents Mesh.ShadowsDisabled)
 mesh =
-    Shape.cylinder
-        { radius = Length.meters 0.1
-        , height = Length.meters 1
-        , subdivisions = {- ? -} 72
+    Shape.sphere
+        { radius = Length.meters 0.45
+        , subdivisions = {- ? -} 360
         }
