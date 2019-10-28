@@ -1,15 +1,15 @@
-module Vizualizer exposing (main)
+port module Vizualizer exposing (main)
 
 import Angle exposing (Angle)
+import Array exposing (Array)
 import Axis3d
+import Bitwise
 import Browser
 import Browser.Events
 import Camera3d
 import Color
-import Dict exposing (Dict)
 import Direction3d
 import Html exposing (Html)
-import Json.Decode as D
 import Length
 import Parameter1d
 import Pixels
@@ -22,7 +22,7 @@ import Triangle3d
 import Viewpoint3d
 
 
-main : Program () Model Msg
+main : Program Flags Model Msg
 main =
     Browser.element
         { init = init
@@ -33,7 +33,9 @@ main =
 
 
 type alias Model =
-    { activeKeys : Dict Int Envelope
+    { width : Float
+    , height : Float
+    , channels : Array Float
     }
 
 
@@ -42,71 +44,67 @@ type Envelope
     | Releasing Float
 
 
-init : () -> ( Model, Cmd Msg )
-init () =
-    ( { activeKeys = Dict.empty }, Cmd.none )
+type alias Flags =
+    { width : Float, height : Float }
+
+
+init : Flags -> ( Model, Cmd Msg )
+init flags =
+    ( { width = flags.width
+      , height = flags.height
+      , channels = Array.repeat 8 0
+      }
+    , Cmd.none
+    )
 
 
 type Msg
     = Diff Float
-    | GotKeyDown Int
-    | GotKeyUp Int
-
-
-upper =
-    [ 81, 50, 87, 51, 69, 82, 53, 84, 54, 89, 55, 85, 73, 57, 79, 48, 80, 219, 187, 221 ]
-
-
-indexOf : a -> List a -> Int
-indexOf value =
-    let
-        recurse index list =
-            case list of
-                [] ->
-                    -1
-
-                first :: rest ->
-                    if first == value then
-                        index
-                    else
-                        recurse (index + 1) rest
-    in
-    recurse 0
+    | Resize Int Int
+    | GotMidiMessage (Array Int)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         Diff time ->
-            ( { model
-                | activeKeys =
-                    Dict.map
-                        (\k v ->
-                            case v of
-                                Sustained ->
-                                    Sustained
+            ( { model | channels = Array.map ((+) -time) model.channels }, Cmd.none )
 
-                                Releasing t ->
-                                    Releasing (max 0 (t - time))
-                        )
-                        model.activeKeys
-              }
-            , Cmd.none
-            )
+        Resize width height ->
+            ( { model | width = toFloat width, height = toFloat height }, Cmd.none )
 
-        GotKeyDown code ->
-            ( { model | activeKeys = Dict.insert code Sustained model.activeKeys }, Cmd.none )
+        GotMidiMessage data ->
+            case Maybe.map3 dataToNote (Array.get 0 data) (Array.get 1 data) (Array.get 2 data) of
+                Just (Note 9 channel note velocity) ->
+                    ( { model | channels = Array.set channel holdTime model.channels }, Cmd.none )
 
-        GotKeyUp code ->
-            ( { model | activeKeys = Dict.insert code (Releasing 750) model.activeKeys }, Cmd.none )
+                _ ->
+                    ( model, Cmd.none )
+
+
+type Note
+    = Note Int Int Int Int
+
+
+dataToNote : Int -> Int -> Int -> Note
+dataToNote byte0 byte1 byte2 =
+    Note (Bitwise.shiftRightBy 4 byte0) (Bitwise.and 0x07 byte0) byte1 byte2
+
+
+holdTime : number
+holdTime =
+    750
+
+
+port midiMessage : (Array Int -> msg) -> Sub msg
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
-        [ Browser.Events.onKeyDown (D.map GotKeyDown (D.field "which" D.int))
-        , Browser.Events.onKeyUp (D.map GotKeyUp (D.field "which" D.int))
+        [ midiMessage GotMidiMessage
         , Browser.Events.onAnimationFrameDelta Diff
+        , Browser.Events.onResize Resize
         ]
 
 
@@ -131,13 +129,10 @@ view model =
         mesh2 =
             Mesh.triangles [] [ triangle2 ]
 
-        -- z = left right
-        -- y = up down
-        -- x = in out
         viewpoint =
             Viewpoint3d.lookAt
                 { focalPoint = Point3d.meters 0 2 0
-                , eyePoint = Point3d.meters 10 5 3
+                , eyePoint = Point3d.meters 10 3 5
                 , upDirection = Direction3d.y
                 }
 
@@ -158,25 +153,18 @@ view model =
             Axis3d.through (Point3d.meters 0 2 0) Direction3d.x
 
         angles =
-            Parameter1d.leading 12 <|
+            Parameter1d.leading 8 <|
                 Quantity.interpolateFrom
                     (Angle.degrees 0)
                     (Angle.degrees 360)
 
-        rotatedSquare activeKeys index angle =
-            case List.filter (\( key, value ) -> modBy 12 (indexOf key upper) == index) (Dict.toList activeKeys) of
-                [] ->
-                    Drawable.empty
-
-                ( _, Sustained ) :: _ ->
-                    square 1 |> Drawable.rotateAround rotationAxis angle
-
-                ( _, Releasing env ) :: _ ->
-                    square (env / 750) |> Drawable.rotateAround rotationAxis angle
+        rotatedSquare angle countdown =
+            square (countdown / holdTime)
+                |> Drawable.rotateAround rotationAxis angle
     in
     Scene3d.unlit []
         { camera = camera
-        , width = Pixels.pixels 800
-        , height = Pixels.pixels 600
+        , width = Pixels.pixels model.width
+        , height = Pixels.pixels model.height
         }
-        (List.indexedMap (rotatedSquare model.activeKeys) angles)
+        (List.map2 rotatedSquare angles (Array.toList model.channels))

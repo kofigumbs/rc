@@ -1,0 +1,45 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,minimum-scale=1,initial-scale=1">
+  <title>Main</title>
+  <style>
+    * {
+      font-size: 16px; font-family: sans-serif;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+    }
+  </style>
+</head>
+<body>
+<div id="elm"></div>
+<script src="elm.js"></script>
+<script>
+  const app = Elm.Vizualizer.init({
+    node: window.elm,
+    flags: { height: window.innerHeight, width: window.innerWidth }
+  });
+
+  navigator.requestMIDIAccess({ sysex: true }).then(function(access) {
+    for(var input of access.inputs.values()) {
+      input.onmidimessage = function(event) {
+        app.ports.midiMessage.send(Array.from(event.data));
+      };
+    }
+
+    for(var output of access.outputs.values()) {
+      setInterval(function() {
+        output.send([
+          // SECRET OP-Z HEARTBEAT?
+          0xF0, 0x00, 0x20, 0x76, 0x01, 0x00, 0x03, 0x3B, 0x72, 0x06, 0xF7,
+        ]);
+      }, 1000);
+    }
+  });
+</script>
+</body>
+</html>
