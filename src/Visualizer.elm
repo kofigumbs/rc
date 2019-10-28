@@ -1,4 +1,4 @@
-port module Vizualizer exposing (main)
+port module Visualizer exposing (main)
 
 import Angle exposing (Angle)
 import Array exposing (Array)
