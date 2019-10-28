@@ -7,7 +7,7 @@ import Bitwise
 import Browser
 import Browser.Events
 import Camera3d
-import Color
+import Color exposing (Color)
 import Direction3d
 import Html exposing (Html)
 import Length
@@ -16,7 +16,7 @@ import Pixels
 import Point3d
 import Quantity
 import Scene3d
-import Scene3d.Drawable as Drawable
+import Scene3d.Drawable as Drawable exposing (Drawable)
 import Scene3d.Mesh as Mesh
 import Triangle3d
 import Viewpoint3d
@@ -52,7 +52,7 @@ init : Flags -> ( Model, Cmd Msg )
 init flags =
     ( { width = flags.width
       , height = flags.height
-      , channels = Array.repeat 8 0
+      , channels = Array.repeat trackCount 0
       }
     , Cmd.none
     )
@@ -96,6 +96,24 @@ holdTime =
     750
 
 
+trackCount : Int
+trackCount =
+    List.length trackColors
+
+
+trackColors : List Color
+trackColors =
+    [ Color.red
+    , Color.orange
+    , Color.yellow
+    , Color.green
+    , Color.blue
+    , Color.purple
+    , Color.brown
+    , Color.grey
+    ]
+
+
 port midiMessage : (Array Int -> msg) -> Sub msg
 
 
@@ -111,24 +129,6 @@ subscriptions model =
 view : Model -> Html Msg
 view model =
     let
-        triangle1 =
-            Triangle3d.from
-                (Point3d.meters 0 0 0)
-                (Point3d.meters 1 0 0)
-                (Point3d.meters 1 1 0)
-
-        triangle2 =
-            Triangle3d.from
-                (Point3d.meters 0 0 0)
-                (Point3d.meters 1 1 0)
-                (Point3d.meters 0 1 0)
-
-        mesh1 =
-            Mesh.triangles [] [ triangle1 ]
-
-        mesh2 =
-            Mesh.triangles [] [ triangle2 ]
-
         viewpoint =
             Viewpoint3d.lookAt
                 { focalPoint = Point3d.meters 0 2 0
@@ -143,28 +143,57 @@ view model =
                 , clipDepth = Length.meters 0.1
                 }
 
-        square alpha =
-            Drawable.group
-                [ Drawable.colored (Color.hsl 0 1 (1 - alpha / 2)) mesh1
-                , Drawable.colored (Color.hsl 0.94 1 (1 - alpha / 2)) mesh2
-                ]
-
-        rotationAxis =
-            Axis3d.through (Point3d.meters 0 2 0) Direction3d.x
-
         angles =
-            Parameter1d.leading 8 <|
+            Parameter1d.leading trackCount <|
                 Quantity.interpolateFrom
                     (Angle.degrees 0)
                     (Angle.degrees 360)
-
-        rotatedSquare angle countdown =
-            square (countdown / holdTime)
-                |> Drawable.rotateAround rotationAxis angle
     in
     Scene3d.unlit []
         { camera = camera
         , width = Pixels.pixels model.width
         , height = Pixels.pixels model.height
         }
-        (List.map2 rotatedSquare angles (Array.toList model.channels))
+        (List.map3 drawTrack angles trackColors (Array.toList model.channels))
+
+
+drawTrack : Angle -> Color -> Float -> Drawable a
+drawTrack angle base countdown =
+    let
+        { hue, saturation } =
+            Color.toHsla base
+
+        color =
+            Color.hsl hue saturation (1 - (countdown / holdTime) / 2)
+    in
+    Drawable.group
+        [ Drawable.colored color mesh1
+        , Drawable.colored color mesh2
+        ]
+        |> Drawable.rotateAround rotationAxis angle
+
+
+rotationAxis =
+    Axis3d.through (Point3d.meters 0 2 0) Direction3d.x
+
+
+triangle1 =
+    Triangle3d.from
+        (Point3d.meters 0 0 0)
+        (Point3d.meters 1 0 0)
+        (Point3d.meters 1 1 0)
+
+
+triangle2 =
+    Triangle3d.from
+        (Point3d.meters 0 0 0)
+        (Point3d.meters 1 1 0)
+        (Point3d.meters 0 1 0)
+
+
+mesh1 =
+    Mesh.triangles [] [ triangle1 ]
+
+
+mesh2 =
+    Mesh.triangles [] [ triangle2 ]
