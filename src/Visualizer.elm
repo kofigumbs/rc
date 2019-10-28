@@ -11,13 +11,12 @@ import Color exposing (Color)
 import Direction3d
 import Html exposing (Html)
 import Length
-import Parameter1d
 import Pixels
 import Point3d
 import Quantity
 import Scene3d
 import Scene3d.Drawable as Drawable exposing (Drawable)
-import Scene3d.Mesh as Mesh
+import Scene3d.Shape as Shape
 import Triangle3d
 import Viewpoint3d
 
@@ -96,6 +95,11 @@ holdTime =
     750
 
 
+trackIndexes : List Int
+trackIndexes =
+    List.range 0 (trackCount - 1)
+
+
 trackCount : Int
 trackCount =
     List.length trackColors
@@ -109,8 +113,8 @@ trackColors =
     , Color.green
     , Color.blue
     , Color.purple
-    , Color.brown
     , Color.grey
+    , Color.black
     ]
 
 
@@ -131,8 +135,8 @@ view model =
     let
         viewpoint =
             Viewpoint3d.lookAt
-                { focalPoint = Point3d.meters 0 2 0
-                , eyePoint = Point3d.meters 10 3 5
+                { focalPoint = Point3d.meters 0 0 0
+                , eyePoint = Point3d.meters 0 10 10
                 , upDirection = Direction3d.y
                 }
 
@@ -142,58 +146,34 @@ view model =
                 , verticalFieldOfView = Angle.degrees 30
                 , clipDepth = Length.meters 0.1
                 }
-
-        angles =
-            Parameter1d.leading trackCount <|
-                Quantity.interpolateFrom
-                    (Angle.degrees 0)
-                    (Angle.degrees 360)
     in
     Scene3d.unlit []
         { camera = camera
         , width = Pixels.pixels model.width
         , height = Pixels.pixels model.height
         }
-        (List.map3 drawTrack angles trackColors (Array.toList model.channels))
+        (List.map3 drawTrack trackIndexes trackColors (Array.toList model.channels))
 
 
-drawTrack : Angle -> Color -> Float -> Drawable a
-drawTrack angle base countdown =
+drawTrack : Int -> Color -> Float -> Drawable a
+drawTrack offset base countdown =
     let
         { hue, saturation } =
             Color.toHsla base
 
         color =
-            Color.hsl hue saturation (1 - (countdown / holdTime) / 2)
+            Color.hsl hue saturation (1 - countdown / holdTime / 2)
     in
-    Drawable.group
-        [ Drawable.colored color mesh1
-        , Drawable.colored color mesh2
-        ]
-        |> Drawable.rotateAround rotationAxis angle
+    Drawable.colored color mesh
+        |> Drawable.translateIn Direction3d.x
+            (Length.meters
+                (toFloat offset - ((toFloat trackCount - 1) / 2))
+            )
 
 
-rotationAxis =
-    Axis3d.through (Point3d.meters 0 2 0) Direction3d.x
-
-
-triangle1 =
-    Triangle3d.from
-        (Point3d.meters 0 0 0)
-        (Point3d.meters 1 0 0)
-        (Point3d.meters 1 1 0)
-
-
-triangle2 =
-    Triangle3d.from
-        (Point3d.meters 0 0 0)
-        (Point3d.meters 1 1 0)
-        (Point3d.meters 0 1 0)
-
-
-mesh1 =
-    Mesh.triangles [] [ triangle1 ]
-
-
-mesh2 =
-    Mesh.triangles [] [ triangle2 ]
+mesh =
+    Shape.cylinder
+        { radius = Length.meters 0.1
+        , height = Length.meters 1
+        , subdivisions = {- ? -} 72
+        }
