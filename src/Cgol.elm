@@ -2,13 +2,11 @@ module Cgol exposing (..)
 
 import Browser
 import Browser.Events
-import Curve
-import Glyph
 import Html
 import Html.Attributes
 import Html.Events
 import Set exposing (Set)
-import Svg exposing (Svg, defs, linearGradient, stop, svg, text)
+import Svg exposing (Svg, circle, defs, linearGradient, stop, svg, text)
 import Svg.Attributes exposing (..)
 import Time
 
@@ -78,8 +76,8 @@ type alias Model =
     , current : World
     , delta : Float
     , stepDuration : Float
-    , glyph : Glyph.Shape
-    , curve : Curve.Shape
+    , glyph : Glyph
+    , curve : Curve
     }
 
 
@@ -97,8 +95,8 @@ init =
     , current = Set.fromList middleSpaceship
     , delta = 0
     , stepDuration = 450
-    , glyph = Glyph.Dot
-    , curve = Curve.Linear
+    , glyph = Dot
+    , curve = Linear
     }
 
 
@@ -125,14 +123,14 @@ view model =
                 []
             ]
         , Html.div []
-            [ Html.button [ Html.Events.onClick (SetCurve Curve.Linear) ] [ text "Linear" ]
-            , Html.button [ Html.Events.onClick (SetCurve Curve.CubicBezier) ] [ text "Cubic Bezier" ]
+            [ Html.button [ Html.Events.onClick (SetCurve Linear) ] [ text "Linear" ]
+            , Html.button [ Html.Events.onClick (SetCurve CubicBezier) ] [ text "Cubic Bezier" ]
             ]
         , Html.div []
-            [ Html.button [ Html.Events.onClick (SetGlyph Glyph.Dot) ] [ text "Dot" ]
-            , Html.button [ Html.Events.onClick (SetGlyph Glyph.Star) ] [ text "Star" ]
-            , Html.button [ Html.Events.onClick (SetGlyph Glyph.Box) ] [ text "Box" ]
-            , Html.button [ Html.Events.onClick (SetGlyph Glyph.Pedal) ] [ text "Pedal" ]
+            [ Html.button [ Html.Events.onClick (SetGlyph Dot) ] [ text "Dot" ]
+            , Html.button [ Html.Events.onClick (SetGlyph Star) ] [ text "Star" ]
+            , Html.button [ Html.Events.onClick (SetGlyph Box) ] [ text "Box" ]
+            , Html.button [ Html.Events.onClick (SetGlyph Pedal) ] [ text "Pedal" ]
             ]
         , Html.div []
             [ Html.button [ Html.Events.onClick (SetPattern blinker) ] [ text "Blinker" ]
@@ -168,11 +166,11 @@ space model cell =
             alive model.previous cell
     in
     if nowAlive && wasAlive {- STAYING ALIIIIVE -} then
-        Just <| Glyph.view model.glyph 1 cell
+        Just <| viewGlyph model.glyph 1 cell
     else if nowAlive {- REVIVING -} then
-        Just <| Glyph.view model.glyph (withCurve model 0 1) cell
+        Just <| viewGlyph model.glyph (withCurve model 0 1) cell
     else if wasAlive {- DYING -} then
-        Just <| Glyph.view model.glyph (withCurve model 1 0) cell
+        Just <| viewGlyph model.glyph (withCurve model 1 0) cell
     else
         Nothing
 
@@ -180,8 +178,8 @@ space model cell =
 type Msg
     = NewAnimationFrameDelta Float
     | SetPattern (List Cell)
-    | SetGlyph Glyph.Shape
-    | SetCurve Curve.Shape
+    | SetGlyph Glyph
+    | SetCurve Curve
     | SetStepDuration String
     | Next
 
@@ -282,10 +280,16 @@ northwestSourtheastCorners padding world =
 
 withCurve : Model -> Int -> Int -> Float
 withCurve model from to =
-    Curve.value model.curve
-        (clamp 0 1 (model.delta / model.stepDuration))
-        (toFloat from)
-        (toFloat to)
+    let
+        f =
+            case model.curve of
+                Linear ->
+                    linear
+
+                CubicBezier ->
+                    cubicBezier
+    in
+    f (clamp 0 1 (model.delta / model.stepDuration)) (toFloat from) (toFloat to)
 
 
 grid : (Cell -> Maybe a) -> List Int -> List Int -> List a
@@ -339,6 +343,197 @@ styles =
         transform-style: preserve-3d;
     }
     """
+
+
+
+-- CURVE
+-- https://en.wikipedia.org/wiki/Bézier_curve
+
+
+type Curve
+    = Linear
+    | CubicBezier
+
+
+linear : Float -> Float -> Float -> Float
+linear t p0 p1 =
+    p0 + t * (p1 - p0)
+
+
+controlPoint1 =
+    1.05
+
+
+controlPoint2 =
+    0.75
+
+
+cubicBezier : Float -> Float -> Float -> Float
+cubicBezier t p0 p3 =
+    let
+        p1 =
+            p0 + controlPoint1 * (p3 - p0)
+
+        p2 =
+            p0 + controlPoint2 * (p3 - p0)
+    in
+    (p0 * ((1 - t) ^ 3))
+        + (p1 * 3 * ((1 - t) ^ 2) * t)
+        + (p2 * 3 * (1 - t) * (t ^ 2))
+        + (p3 * (t ^ 3))
+
+
+
+-- GLYPH
+
+
+size : Float
+size =
+    0.4
+
+
+type Glyph
+    = Dot
+    | Star
+    | Box
+    | Pedal
+
+
+viewGlyph : Glyph -> Float -> ( Int, Int ) -> Svg msg
+viewGlyph shape multiplier ( x, y ) =
+    let
+        f =
+            case shape of
+                Dot ->
+                    dot
+
+                Star ->
+                    star
+
+                Box ->
+                    box
+
+                Pedal ->
+                    pedal
+    in
+    f multiplier (toFloat x) (toFloat y)
+
+
+dot : Float -> Float -> Float -> Svg msg
+dot multiplier x y =
+    circle
+        [ fill "black"
+        , cx (decimal x)
+        , cy (decimal y)
+        , r (decimal (size * multiplier))
+        ]
+        []
+
+
+star : Float -> Float -> Float -> Svg msg
+star multiplier x y =
+    let
+        center =
+            decimal x ++ " " ++ decimal y ++ " "
+    in
+    Svg.path
+        [ fill "transparent"
+        , stroke "orange"
+        , strokeWidth <| decimal (multiplier * 0.2)
+        , d <|
+            ("M " ++ decimal (x - size) ++ " " ++ decimal y)
+                ++ ("Q " ++ center ++ decimal x ++ " " ++ decimal (y - size))
+                ++ ("Q " ++ center ++ decimal (x + size) ++ " " ++ decimal y)
+                ++ ("Q " ++ center ++ decimal x ++ " " ++ decimal (y + size))
+                ++ ("Q " ++ center ++ decimal (x - size) ++ " " ++ decimal y)
+        ]
+        []
+
+
+box : Float -> Float -> Float -> Svg msg
+box multiplier x y =
+    let
+        measuredLength =
+            3.3
+    in
+    Svg.path
+        [ fill "green"
+        , fillOpacity (decimal multiplier)
+        , stroke "black"
+        , strokeDasharray (decimal measuredLength)
+        , strokeDashoffset <| decimal ((1 - multiplier) * measuredLength)
+        , strokeWidth "0.2"
+        , d <|
+            ("M " ++ decimal (x - size) ++ " " ++ decimal (y - size))
+                ++ ("H " ++ decimal (x + size))
+                ++ ("V " ++ decimal (y + size))
+                ++ ("H " ++ decimal (x - size))
+                ++ ("V " ++ decimal (y - size))
+        ]
+        []
+
+
+pedal : Float -> Float -> Float -> Svg msg
+pedal multiplier x y =
+    Svg.path
+        [ fill "url(#pedal)"
+        , fillOpacity <| decimal multiplier
+        , style <|
+            if multiplier <= 0.001 then
+                "display: none"
+            else
+                "transform: rotate3d("
+                    ++ decimal x
+                    ++ ","
+                    ++ decimal y
+                    ++ ", 0,"
+                    ++ decimal ((1 - multiplier) * 270)
+                    ++ "deg);"
+        , d <|
+            ("M " ++ decimal (x - size) ++ " " ++ decimal y)
+                ++ ("Q "
+                        ++ decimal (x - size)
+                        ++ " "
+                        ++ decimal (y - size)
+                        ++ " "
+                        ++ decimal x
+                        ++ " "
+                        ++ decimal (y - size)
+                   )
+                ++ ("Q "
+                        ++ decimal (x + size)
+                        ++ " "
+                        ++ decimal (y - size)
+                        ++ " "
+                        ++ decimal (x + size)
+                        ++ " "
+                        ++ decimal y
+                   )
+                ++ ("Q "
+                        ++ decimal (x + size)
+                        ++ " "
+                        ++ decimal (y + size)
+                        ++ " "
+                        ++ decimal x
+                        ++ " "
+                        ++ decimal (y + size)
+                   )
+                ++ ("Q "
+                        ++ decimal (x - size)
+                        ++ " "
+                        ++ decimal (y + size)
+                        ++ " "
+                        ++ decimal (x - size)
+                        ++ " "
+                        ++ decimal y
+                   )
+        ]
+        []
+
+
+decimal : Float -> String
+decimal =
+    String.fromFloat
 
 
 
