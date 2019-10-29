@@ -10,7 +10,7 @@ import Camera3d
 import Color exposing (Color)
 import Direction3d
 import Html exposing (Html)
-import Length
+import Length exposing (Length)
 import Pixels
 import Point3d
 import Quantity
@@ -18,6 +18,7 @@ import Scene3d
 import Scene3d.Drawable as Drawable exposing (Drawable)
 import Scene3d.Mesh as Mesh exposing (Mesh)
 import Scene3d.Shape as Shape
+import SketchPlane3d
 import Triangle3d
 import Viewpoint3d
 
@@ -36,13 +37,14 @@ type alias Model =
     { time : Float
     , width : Float
     , height : Float
-    , channels : Array Float
+    , channels : Array Envelope
     }
 
 
 type Envelope
-    = Sustained
-    | Releasing Float
+    = Unset
+    | Sustained
+    | Released Float
 
 
 type alias Flags =
@@ -54,7 +56,7 @@ init flags =
     ( { time = 0
       , width = flags.width
       , height = flags.height
-      , channels = Array.repeat trackCount 0
+      , channels = Array.repeat trackCount Unset
       }
     , Cmd.none
     )
@@ -69,11 +71,8 @@ type Msg
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        Diff time ->
-            ( { model
-                | time = model.time + time
-                , channels = Array.map ((+) -time) model.channels
-              }
+        Diff diff ->
+            ( { model | time = model.time + diff }
             , Cmd.none
             )
 
@@ -82,8 +81,11 @@ update msg model =
 
         GotMidiMessage data ->
             case Maybe.map3 dataToNote (Array.get 0 data) (Array.get 1 data) (Array.get 2 data) of
+                Just (Note 8 channel note velocity) ->
+                    ( { model | channels = Array.set channel (Released model.time) model.channels }, Cmd.none )
+
                 Just (Note 9 channel note velocity) ->
-                    ( { model | channels = Array.set channel holdTime model.channels }, Cmd.none )
+                    ( { model | channels = Array.set channel Sustained model.channels }, Cmd.none )
 
                 _ ->
                     ( model, Cmd.none )
@@ -98,11 +100,6 @@ dataToNote byte0 byte1 byte2 =
     Note (Bitwise.shiftRightBy 4 byte0) (Bitwise.and 0x07 byte0) byte1 byte2
 
 
-holdTime : number
-holdTime =
-    750
-
-
 trackIndexes : List Int
 trackIndexes =
     List.range 0 (trackCount - 1)
@@ -111,11 +108,6 @@ trackIndexes =
 trackCount : Int
 trackCount =
     List.length trackColors
-
-
-baseRotationSpeed : number
-baseRotationSpeed =
-    450
 
 
 trackColors : List Color
@@ -147,14 +139,12 @@ view : Model -> Html Msg
 view model =
     let
         viewpoint =
-            Viewpoint3d.lookAt
-                { focalPoint = Point3d.meters 0 0 0
-                , eyePoint =
-                    Point3d.meters
-                        (cos (model.time / 2 / baseRotationSpeed) * 5)
-                        (sin (model.time / 3 / baseRotationSpeed) * 5)
-                        (sin (model.time / 2 / baseRotationSpeed) * 5)
-                , upDirection = Direction3d.y
+            Viewpoint3d.orbit
+                { groundPlane = SketchPlane3d.xy
+                , azimuth = Angle.degrees (model.time / 16)
+                , elevation = Angle.degrees (model.time / 32)
+                , focalPoint = Point3d.meters (cos (model.time / 720)) 0 0
+                , distance = Length.meters (8 + sin (model.time / 720) * 2)
                 }
 
         camera =
@@ -169,28 +159,45 @@ view model =
         , width = Pixels.pixels model.width
         , height = Pixels.pixels model.height
         }
-        (List.map3 drawTrack trackIndexes trackColors (Array.toList model.channels))
+        (List.map3 (drawTrack model.time) trackIndexes trackColors (Array.toList model.channels))
 
 
-drawTrack : Int -> Color -> Float -> Drawable a
-drawTrack offset base countdown =
+drawTrack : Float -> Int -> Color -> Envelope -> Drawable a
+drawTrack time index base envelope =
     let
+        ratio =
+            case envelope of
+                Unset ->
+                    0
+
+                Sustained ->
+                    1
+
+                Released at ->
+                    max 0 (1 - (time - at) / 750)
+
         { hue, saturation } =
             Color.toHsla base
 
         color =
-            Color.hsl hue saturation (countdown / holdTime / 2)
+            Color.hsl hue saturation (ratio / 2)
+
+        offset =
+            Length.meters (toFloat index - ((toFloat trackCount - 1) / 2))
     in
     Drawable.colored color mesh
-        |> Drawable.translateIn (Direction3d.xz (Angle.degrees -45))
-            (Length.meters
-                (toFloat offset - ((toFloat trackCount - 1) / 2))
-            )
+        |> Drawable.scaleAbout Point3d.origin ratio
+        |> Drawable.translateIn Direction3d.x offset
+
+
+radius : Length
+radius =
+    Length.meters 0.45
 
 
 mesh : Mesh a (Mesh.Triangles Mesh.WithNormals Mesh.NoUV Mesh.NoTangents Mesh.ShadowsDisabled)
 mesh =
     Shape.sphere
-        { radius = Length.meters 0.45
-        , subdivisions = {- ? -} 360
+        { radius = radius
+        , subdivisions = 72
         }
