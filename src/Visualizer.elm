@@ -141,8 +141,8 @@ view model =
         viewpoint =
             Viewpoint3d.orbit
                 { groundPlane = SketchPlane3d.xy
-                , azimuth = Angle.degrees (model.time / 16)
-                , elevation = Angle.degrees (model.time / 32)
+                , azimuth = Angle.degrees (model.time / 64)
+                , elevation = Angle.degrees (model.time / 128 + 15)
                 , focalPoint = Point3d.meters (cos (model.time / 720)) 0 0
                 , distance = Length.meters (8 + sin (model.time / 720) * 2)
                 }
@@ -185,19 +185,11 @@ drawTrack time index base envelope =
         offset =
             Length.meters (toFloat index - ((toFloat trackCount - 1) / 2))
     in
-    Drawable.colored color mesh
+    Drawable.colored color sphere
         |> Drawable.scaleAbout Point3d.origin ratio
         |> Drawable.translateIn Direction3d.x offset
 
 
-radius : Length
-radius =
-    Length.meters 0.45
-
-
-mesh : Mesh a (Mesh.Triangles Mesh.WithNormals Mesh.NoUV Mesh.NoTangents Mesh.ShadowsDisabled)
-mesh =
-    Shape.sphere
-        { radius = radius
-        , subdivisions = 72
-        }
+sphere : Mesh a (Mesh.Triangles Mesh.WithNormals Mesh.NoUV Mesh.NoTangents Mesh.ShadowsDisabled)
+sphere =
+    Shape.sphere { radius = Length.meters 0.45, subdivisions = 72 }
