@@ -10,12 +10,17 @@ import Camera3d
 import Color exposing (Color)
 import Direction3d
 import Html exposing (Html)
+import Illuminance as Illuminance
 import Length exposing (Length)
+import Luminance as Luminance
 import Pixels
 import Point3d
 import Quantity
 import Scene3d
-import Scene3d.Drawable as Drawable exposing (Drawable)
+import Scene3d.Chromaticity as Chromaticity
+import Scene3d.Drawable as Drawable exposing (Drawable, Material)
+import Scene3d.Exposure as Exposure
+import Scene3d.Light as Light
 import Scene3d.Mesh as Mesh exposing (Mesh)
 import Scene3d.Shape as Shape
 import SketchPlane3d
@@ -34,17 +39,12 @@ main =
 
 
 type alias Model =
-    { time : Float
+    { step : Float
+    , time : Float
     , width : Float
     , height : Float
-    , channels : Array Envelope
+    , channels : Array Int
     }
-
-
-type Envelope
-    = Unset
-    | Sustained
-    | Released Float
 
 
 type alias Flags =
@@ -53,10 +53,11 @@ type alias Flags =
 
 init : Flags -> ( Model, Cmd Msg )
 init flags =
-    ( { time = 0
+    ( { step = 750
+      , time = 0
       , width = flags.width
       , height = flags.height
-      , channels = Array.repeat trackCount Unset
+      , channels = Array.repeat 8 0
       }
     , Cmd.none
     )
@@ -65,65 +66,45 @@ init flags =
 type Msg
     = Diff Float
     | Resize Int Int
-    | GotMidiMessage (Array Int)
+    | GotMidiMessage (List Int)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         Diff diff ->
-            ( { model | time = model.time + diff }
-            , Cmd.none
-            )
+            pure { model | time = model.time + diff }
 
         Resize width height ->
-            ( { model | width = toFloat width, height = toFloat height }, Cmd.none )
+            pure { model | width = toFloat width, height = toFloat height }
 
         GotMidiMessage data ->
-            case Maybe.map3 dataToNote (Array.get 0 data) (Array.get 1 data) (Array.get 2 data) of
-                Just (Note 8 channel note velocity) ->
-                    ( { model | channels = Array.set channel (Released model.time) model.channels }, Cmd.none )
+            case data of
+                [ status, note, velocity ] ->
+                    let
+                        command =
+                            Bitwise.shiftRightBy 4 status
 
-                Just (Note 9 channel note velocity) ->
-                    ( { model | channels = Array.set channel Sustained model.channels }, Cmd.none )
+                        channel =
+                            Bitwise.and 0x07 status
+                    in
+                    case ( command, Array.get channel model.channels ) of
+                        ( 8, Just (oldValue as old) ) ->
+                            pure { model | channels = Array.set channel (oldValue + 1) model.channels }
+
+                        _ ->
+                            pure model
 
                 _ ->
-                    ( model, Cmd.none )
+                    pure model
 
 
-type Note
-    = Note Int Int Int Int
+pure : a -> ( a, Cmd msg )
+pure a =
+    ( a, Cmd.none )
 
 
-dataToNote : Int -> Int -> Int -> Note
-dataToNote byte0 byte1 byte2 =
-    Note (Bitwise.shiftRightBy 4 byte0) (Bitwise.and 0x07 byte0) byte1 byte2
-
-
-trackIndexes : List Int
-trackIndexes =
-    List.range 0 (trackCount - 1)
-
-
-trackCount : Int
-trackCount =
-    List.length trackColors
-
-
-trackColors : List Color
-trackColors =
-    [ Color.red
-    , Color.orange
-    , Color.yellow
-    , Color.green
-    , Color.blue
-    , Color.purple
-    , Color.grey
-    , Color.black
-    ]
-
-
-port midiMessage : (Array Int -> msg) -> Sub msg
+port midiMessage : (List Int -> msg) -> Sub msg
 
 
 subscriptions : Model -> Sub Msg
@@ -135,16 +116,29 @@ subscriptions model =
         ]
 
 
-view : Model -> Html Msg
+view : Model -> Html msg
 view model =
+    viewSubject model
+        (cycle (Array.get 0 model.channels) vary.colors)
+        (cycle (Array.get 1 model.channels) vary.colors)
+        (cycle (Array.get 2 model.channels) vary.colors)
+        (cycle (Array.get 3 model.channels) vary.colors)
+        (cycle (Array.get 4 model.channels) vary.scales)
+        (cycle (Array.get 5 model.channels) vary.rotations)
+        (cycle (Array.get 6 model.channels) vary.rotations)
+        (cycle (Array.get 7 model.channels) vary.rotations)
+
+
+viewSubject : Model -> Color -> Color -> Color -> Color -> Float -> Angle -> Angle -> Angle -> Html msg
+viewSubject model color1 color2 color3 color4 scale xAngle yAngle zAngle =
     let
         viewpoint =
             Viewpoint3d.orbit
                 { groundPlane = SketchPlane3d.xy
-                , azimuth = Angle.degrees (model.time / 64)
-                , elevation = Angle.degrees (model.time / 128 + 15)
-                , focalPoint = Point3d.meters (cos (model.time / 720)) 0 0
-                , distance = Length.meters (8 + sin (model.time / 720) * 2)
+                , azimuth = Angle.degrees 0
+                , elevation = Angle.degrees 0
+                , focalPoint = Point3d.meters 0 0 0
+                , distance = Length.meters 8
                 }
 
         camera =
@@ -153,43 +147,131 @@ view model =
                 , verticalFieldOfView = Angle.degrees 30
                 , clipDepth = Length.meters 0.1
                 }
+
+        light1 =
+            Light.directional
+                (Chromaticity.fromColor color1)
+                (Illuminance.lux 10000)
+                (Direction3d.yz (Angle.degrees 45))
+
+        light2 =
+            Light.directional
+                (Chromaticity.fromColor color2)
+                (Illuminance.lux 10000)
+                (Direction3d.yz (Angle.degrees 135))
+
+        light3 =
+            Light.directional
+                (Chromaticity.fromColor color3)
+                (Illuminance.lux 10000)
+                (Direction3d.yz (Angle.degrees 225))
+
+        light4 =
+            Light.directional
+                (Chromaticity.fromColor color4)
+                (Illuminance.lux 10000)
+                (Direction3d.yz (Angle.degrees 315))
+
+        ambientLighting =
+            Light.overcast
+                { zenithDirection = Direction3d.z
+                , chromaticity = Chromaticity.daylight
+                , zenithLuminance = Luminance.nits 5000
+                }
     in
-    Scene3d.unlit [ Scene3d.clearColor Color.black ]
+    Scene3d.render [ Scene3d.clearColor Color.black ]
         { camera = camera
         , width = Pixels.pixels model.width
         , height = Pixels.pixels model.height
+        , ambientLighting = Just ambientLighting
+        , lights = Scene3d.fourLights ( light1, { castsShadows = False } ) light2 light3 light4
+        , exposure = Exposure.fromMaxLuminance (Luminance.nits 10000)
+        , whiteBalance = Chromaticity.daylight
         }
-        (List.map3 (drawTrack model.time) trackIndexes trackColors (Array.toList model.channels))
+        [ Drawable.physical aluminum subject
+            |> Drawable.scaleAbout Point3d.origin scale
+            |> Drawable.rotateAround Axis3d.x xAngle
+            |> Drawable.rotateAround Axis3d.y yAngle
+            |> Drawable.rotateAround Axis3d.z zAngle
+        ]
 
 
-drawTrack : Float -> Int -> Color -> Envelope -> Drawable a
-drawTrack time index base envelope =
+subject : Mesh a (Mesh.Triangles Mesh.WithNormals Mesh.NoUV Mesh.NoTangents Mesh.ShadowsDisabled)
+subject =
     let
-        ratio =
-            case envelope of
-                Unset ->
-                    0
-
-                Sustained ->
-                    1
-
-                Released at ->
-                    max 0 (1 - (time - at) / 750)
-
-        { hue, saturation } =
-            Color.toHsla base
-
-        color =
-            Color.hsl hue saturation (ratio / 2)
-
-        offset =
-            Length.meters (toFloat index - ((toFloat trackCount - 1) / 2))
+        side =
+            Length.meters 0.45
     in
-    Drawable.colored color sphere
-        |> Drawable.scaleAbout Point3d.origin ratio
-        |> Drawable.translateIn Direction3d.x offset
+    -- Shape.block side side side
+    Shape.sphere { radius = side, subdivisions = 72 }
 
 
-sphere : Mesh a (Mesh.Triangles Mesh.WithNormals Mesh.NoUV Mesh.NoTangents Mesh.ShadowsDisabled)
-sphere =
-    Shape.sphere { radius = Length.meters 0.45, subdivisions = 72 }
+cycle : Maybe Int -> Array b -> b
+cycle channel values =
+    let
+        index =
+            modBy (Array.length values) (Maybe.withDefault 0 channel)
+    in
+    case Array.get index values of
+        Just value ->
+            value
+
+        _ ->
+            -- UNTO INFINITY
+            cycle Nothing values
+
+
+vary =
+    { colors =
+        Array.fromList
+            [ Color.red
+            , Color.orange
+            , Color.yellow
+            , Color.green
+            , Color.blue
+            , Color.purple
+            , Color.grey
+            ]
+    , scales =
+        Array.fromList
+            [ 1.0
+            , 1.1
+            , 1.25
+            , 1.45
+            , 1.7
+            , 2.0
+            , 2.35
+            , 2.75
+            , 3.2
+            , 3.7
+            ]
+    , rotations =
+        Array.fromList
+            [ Angle.degrees 30
+            , Angle.degrees 15
+            , Angle.degrees 30
+            , Angle.degrees 45
+            , Angle.degrees 60
+            , Angle.degrees 45
+            , Angle.degrees 60
+            , Angle.degrees 75
+            , Angle.degrees 60
+            , Angle.degrees 75
+            , Angle.degrees 90
+            , Angle.degrees 75
+            , Angle.degrees 60
+            , Angle.degrees 75
+            , Angle.degrees 60
+            , Angle.degrees 45
+            , Angle.degrees 60
+            , Angle.degrees 45
+            , Angle.degrees 30
+            ]
+    }
+
+
+{-| <https://github.com/ianmackenzie/elm-3d-scene/blob/85ee07e1454a0270ead17c0319688ccf091ade2f/examples/Common/Materials.elm#L19-L21>
+-}
+aluminum : Material
+aluminum =
+    { baseColor = Color.rgb255 233 235 236, roughness = 0.6, metallic = True }
