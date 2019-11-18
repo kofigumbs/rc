@@ -2,7 +2,7 @@ port module Visualizer exposing (main)
 
 import Angle exposing (Angle)
 import Array exposing (Array)
-import Axis3d
+import Axis3d exposing (Axis3d)
 import Bitwise
 import Browser
 import Browser.Events
@@ -142,7 +142,7 @@ viewSubject model =
         sunlight =
             Light.directional Chromaticity.daylight
                 (Illuminance.lux 10000)
-                (Direction3d.zxY (Angle.degrees 45) (Angle.degrees 90))
+                (Direction3d.zxY (Angle.degrees 45) (Angle.degrees 195))
 
         ambientLighting =
             Light.overcast
@@ -150,9 +150,6 @@ viewSubject model =
                 , chromaticity = Chromaticity.daylight
                 , zenithLuminance = Luminance.nits 5000
                 }
-
-        swing =
-            Drawable.rotateAround Axis3d.y (Angle.degrees (model.time / 30))
     in
     Scene3d.render [ Scene3d.clearColor Color.black ]
         { camera = camera
@@ -163,54 +160,55 @@ viewSubject model =
         , exposure = Exposure.fromMaxLuminance (Luminance.nits 10000)
         , whiteBalance = Chromaticity.daylight
         }
-        (List.map swing
-            [ bodyPart head
-            , bodyPart torso
-                |> Drawable.translateIn Direction3d.negativeY
-                    (Quantity.divideBy 2 var.torsoLength
-                        |> Quantity.plus var.headRadius
-                        |> Quantity.plus var.spacing
-                    )
-            , bodyPart arm
-                |> Drawable.rotateAround Axis3d.x (Angle.degrees 90)
-                |> Drawable.translateIn Direction3d.negativeY
-                    (Quantity.plus var.spacing var.headRadius)
-                |> Drawable.translateIn Direction3d.x
-                    (Quantity.divideBy 2 var.limbWidth
-                        |> Quantity.plus var.limbWidth
-                        |> Quantity.plus (Quantity.multiplyBy 2 var.spacing)
-                    )
-            , bodyPart arm
-                |> Drawable.rotateAround Axis3d.x (Angle.degrees 90)
-                |> Drawable.translateIn Direction3d.negativeY
-                    (Quantity.plus var.spacing var.headRadius)
-                |> Drawable.translateIn Direction3d.negativeX
-                    (Quantity.divideBy 2 var.limbWidth
-                        |> Quantity.plus var.limbWidth
-                        |> Quantity.plus (Quantity.multiplyBy 2 var.spacing)
-                    )
-            , bodyPart leg
-                |> Drawable.rotateAround Axis3d.x (Angle.degrees 90)
-                |> Drawable.translateIn Direction3d.negativeY
-                    (Quantity.plus var.spacing var.headRadius
-                        |> Quantity.plus var.torsoLength
-                    )
-                |> Drawable.translateIn Direction3d.x
-                    (Quantity.divideBy 2 var.limbWidth
-                        |> Quantity.plus var.spacing
-                    )
-            , bodyPart leg
-                |> Drawable.rotateAround Axis3d.x (Angle.degrees 90)
-                |> Drawable.translateIn Direction3d.negativeY
-                    (Quantity.plus var.spacing var.headRadius
-                        |> Quantity.plus var.torsoLength
-                    )
-                |> Drawable.translateIn Direction3d.negativeX
-                    (Quantity.divideBy 2 var.limbWidth
-                        |> Quantity.plus var.spacing
-                    )
-            ]
-        )
+    <|
+        let
+            arm_ dir =
+                bodyPart arm
+                    |> Drawable.rotateAround Axis3d.x (Angle.degrees 270)
+                    |> Drawable.translateIn Direction3d.negativeY
+                        (Quantity.plus var.spacing var.headRadius
+                            |> Quantity.plus var.armLength
+                        )
+                    |> Drawable.translateIn dir
+                        (Quantity.divideBy 2 var.limbWidth
+                            |> Quantity.plus var.limbWidth
+                            |> Quantity.plus (Quantity.multiplyBy 2 var.spacing)
+                        )
+
+            leg_ dir =
+                bodyPart leg
+                    |> Drawable.rotateAround Axis3d.x (Angle.degrees 270)
+                    |> Drawable.translateIn Direction3d.negativeY
+                        (Quantity.plus var.spacing var.headRadius
+                            |> Quantity.plus var.torsoLength
+                            |> Quantity.plus var.legLength
+                        )
+                    |> Drawable.translateIn dir
+                        (Quantity.divideBy 2 var.limbWidth
+                            |> Quantity.plus var.spacing
+                        )
+
+            swing cadence =
+                Angle.degrees (sin (model.time / cadence) * 5)
+        in
+        [ bodyPart head
+            |> Drawable.rotateAround hips (swing 180)
+        , bodyPart torso
+            |> Drawable.translateIn Direction3d.negativeY
+                (Quantity.divideBy 2 var.torsoLength
+                    |> Quantity.plus var.headRadius
+                    |> Quantity.plus var.spacing
+                )
+            |> Drawable.rotateAround hips (swing 120)
+        , arm_ Direction3d.x
+            |> Drawable.rotateAround hips (Quantity.negate (swing 180))
+        , arm_ Direction3d.negativeX
+            |> Drawable.rotateAround hips (Quantity.negate (swing 180))
+        , leg_ Direction3d.x
+            |> Drawable.rotateAround hips (Quantity.negate (swing 120))
+        , leg_ Direction3d.negativeX
+            |> Drawable.rotateAround hips (Quantity.negate (swing 120))
+        ]
 
 
 head : Mesh a (Mesh.Triangles Mesh.WithNormals Mesh.NoUV Mesh.NoTangents Mesh.ShadowsDisabled)
@@ -261,6 +259,17 @@ bodyPart =
         , roughness = 0.25
         , metallic = False
         }
+
+
+hips : Axis3d Length.Meters c
+hips =
+    let
+        y =
+            Quantity.negate <|
+                Quantity.sum [ var.headRadius, var.spacing, var.torsoLength ]
+    in
+    Axis3d.withDirection Direction3d.z <|
+        Point3d.xyz Quantity.zero y Quantity.zero
 
 
 var =
