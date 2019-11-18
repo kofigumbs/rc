@@ -162,20 +162,21 @@ viewSubject model =
         }
     <|
         let
-            arm_ dir =
+            arm_ dir rotation =
                 bodyPart arm
                     |> Drawable.rotateAround Axis3d.x (Angle.degrees 270)
                     |> Drawable.translateIn Direction3d.negativeY
                         (Quantity.plus var.spacing var.headRadius
                             |> Quantity.plus var.armLength
                         )
+                    |> rotation
                     |> Drawable.translateIn dir
                         (Quantity.divideBy 2 var.limbWidth
                             |> Quantity.plus var.limbWidth
                             |> Quantity.plus (Quantity.multiplyBy 2 var.spacing)
                         )
 
-            leg_ dir =
+            leg_ dir rotation =
                 bodyPart leg
                     |> Drawable.rotateAround Axis3d.x (Angle.degrees 270)
                     |> Drawable.translateIn Direction3d.negativeY
@@ -183,31 +184,40 @@ viewSubject model =
                             |> Quantity.plus var.torsoLength
                             |> Quantity.plus var.legLength
                         )
+                    |> rotation
                     |> Drawable.translateIn dir
                         (Quantity.divideBy 2 var.limbWidth
                             |> Quantity.plus var.spacing
                         )
 
-            swing cadence =
-                Angle.degrees (sin (model.time / cadence) * 5)
+            swing cadence distance =
+                Angle.degrees (sin (model.time / cadence) * distance)
         in
         [ bodyPart head
-            |> Drawable.rotateAround hips (swing 180)
+            |> Drawable.rotateAround (jointAtY <| Quantity.plus var.headRadius var.spacing) (swing 90 5)
         , bodyPart torso
             |> Drawable.translateIn Direction3d.negativeY
                 (Quantity.divideBy 2 var.torsoLength
                     |> Quantity.plus var.headRadius
                     |> Quantity.plus var.spacing
                 )
-            |> Drawable.rotateAround hips (swing 120)
-        , arm_ Direction3d.x
-            |> Drawable.rotateAround hips (Quantity.negate (swing 180))
-        , arm_ Direction3d.negativeX
-            |> Drawable.rotateAround hips (Quantity.negate (swing 180))
-        , leg_ Direction3d.x
-            |> Drawable.rotateAround hips (Quantity.negate (swing 120))
-        , leg_ Direction3d.negativeX
-            |> Drawable.rotateAround hips (Quantity.negate (swing 120))
+            |> Drawable.rotateAround
+                (jointAtY <|
+                    Quantity.sum
+                        [ var.headRadius
+                        , var.spacing
+                        , var.torsoLength
+                        ]
+                )
+                (swing 120 5)
+        , arm_ Direction3d.x <|
+            Drawable.rotateAround Axis3d.z (Quantity.negate (swing 120 10))
+        , arm_ Direction3d.negativeX <|
+            Drawable.rotateAround Axis3d.z (Quantity.negate (swing 120 10))
+        , leg_ Direction3d.x <|
+            Drawable.rotateAround (jointAtY (Quantity.multiplyBy 2 var.legLength)) (Quantity.negate (swing 120 5))
+        , leg_ Direction3d.negativeX <|
+            Drawable.rotateAround (jointAtY (Quantity.multiplyBy 2 var.legLength)) (Quantity.negate (swing 120 5))
         ]
 
 
@@ -261,15 +271,10 @@ bodyPart =
         }
 
 
-hips : Axis3d Length.Meters c
-hips =
-    let
-        y =
-            Quantity.negate <|
-                Quantity.sum [ var.headRadius, var.spacing, var.torsoLength ]
-    in
+jointAtY : Length -> Axis3d Length.Meters c
+jointAtY y =
     Axis3d.withDirection Direction3d.z <|
-        Point3d.xyz Quantity.zero y Quantity.zero
+        Point3d.xyz Quantity.zero (Quantity.negate y) Quantity.zero
 
 
 var =
