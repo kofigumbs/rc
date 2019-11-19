@@ -161,40 +161,11 @@ viewSubject model =
         , whiteBalance = Chromaticity.daylight
         }
     <|
-        let
-            arm_ dir rotation =
-                bodyPart arm
-                    |> Drawable.rotateAround Axis3d.x (Angle.degrees 270)
-                    |> Drawable.translateIn Direction3d.negativeY
-                        (Quantity.plus var.spacing var.headRadius
-                            |> Quantity.plus var.armLength
-                        )
-                    |> rotation
-                    |> Drawable.translateIn dir
-                        (Quantity.divideBy 2 var.limbWidth
-                            |> Quantity.plus var.limbWidth
-                            |> Quantity.plus (Quantity.multiplyBy 2 var.spacing)
-                        )
-
-            leg_ dir rotation =
-                bodyPart leg
-                    |> Drawable.rotateAround Axis3d.x (Angle.degrees 270)
-                    |> Drawable.translateIn Direction3d.negativeY
-                        (Quantity.plus var.spacing var.headRadius
-                            |> Quantity.plus var.torsoLength
-                            |> Quantity.plus var.legLength
-                        )
-                    |> rotation
-                    |> Drawable.translateIn dir
-                        (Quantity.divideBy 2 var.limbWidth
-                            |> Quantity.plus var.spacing
-                        )
-        in
-        [ bodyPart head
+        [ head
             |> Drawable.rotateAround
                 (jointAtY <| Quantity.plus var.headRadius var.spacing)
                 (Angle.degrees <| curve model.time [ 15, -10, 10, -15, 10, -10 ])
-        , bodyPart torso
+        , torso
             |> Drawable.translateIn Direction3d.negativeY
                 (Quantity.divideBy 2 var.torsoLength
                     |> Quantity.plus var.headRadius
@@ -203,62 +174,91 @@ viewSubject model =
             |> Drawable.rotateAround
                 (jointAtY <| Quantity.sum [ var.headRadius, var.spacing, var.torsoLength ])
                 (Angle.degrees <| curve model.time [ -5, 5 ])
-        , arm_ Direction3d.x <|
-            Drawable.rotateAround Axis3d.z (Angle.degrees <| curve model.time [ 10, -10 ])
-                >> Drawable.rotateAround Axis3d.x (Angle.degrees <| curve model.time [ -15, -15, 15 ])
-        , arm_ Direction3d.negativeX <|
-            Drawable.rotateAround Axis3d.z (Angle.degrees <| curve model.time [ 10, -10 ])
-                >> Drawable.rotateAround Axis3d.x (Angle.degrees <| curve model.time [ -15, -15, 15 ])
-        , leg_ Direction3d.x <|
-            Drawable.rotateAround
+        , arm
+            |> Drawable.rotateAround Axis3d.z (Angle.degrees <| curve model.time [ 10, -10 ])
+            |> Drawable.rotateAround Axis3d.x (Angle.degrees <| curve model.time [ -15, -15, 15 ])
+            |> Drawable.translateIn Direction3d.x armOffset
+        , arm
+            |> Drawable.rotateAround Axis3d.z (Angle.degrees <| curve model.time [ 10, -10 ])
+            |> Drawable.rotateAround Axis3d.x (Angle.degrees <| curve model.time [ -15, -15, 15 ])
+            |> Drawable.translateIn Direction3d.negativeX armOffset
+        , leg
+            |> Drawable.rotateAround
                 (jointAtY (Quantity.multiplyBy 2 var.legLength))
                 (Angle.degrees <| curve model.time [ 5, -5 ])
-        , leg_ Direction3d.negativeX <|
-            Drawable.rotateAround
+            |> Drawable.translateIn Direction3d.x legOffset
+        , leg
+            |> Drawable.rotateAround
                 (jointAtY (Quantity.multiplyBy 2 var.legLength))
                 (Angle.degrees <| curve model.time [ 5, -5 ])
+            |> Drawable.translateIn Direction3d.negativeX legOffset
         ]
 
 
-head : Mesh a (Mesh.Triangles Mesh.WithNormals Mesh.NoUV Mesh.NoTangents Mesh.ShadowsDisabled)
+head : Drawable a
 head =
-    Shape.sphere
-        { radius = var.headRadius
-        , subdivisions = 72
-        }
+    bodyPart <|
+        Shape.sphere
+            { radius = var.headRadius
+            , subdivisions = 72
+            }
 
 
-leg : Mesh a (Mesh.Triangles Mesh.WithNormals Mesh.NoUV Mesh.NoTangents Mesh.ShadowsDisabled)
+leg : Drawable a
 leg =
-    Shape.cylinder
-        { radius = Quantity.divideBy 2 var.limbWidth
-        , height = var.legLength
-        , subdivisions = 72
-        }
+    limb var.legLength
+        |> Drawable.translateIn Direction3d.negativeY
+            (Quantity.plus var.spacing var.headRadius
+                |> Quantity.plus var.torsoLength
+                |> Quantity.plus var.legLength
+            )
 
 
-arm : Mesh a (Mesh.Triangles Mesh.WithNormals Mesh.NoUV Mesh.NoTangents Mesh.ShadowsDisabled)
+arm : Drawable a
 arm =
-    Shape.cylinder
-        { radius = Quantity.divideBy 2 var.limbWidth
-        , height = var.armLength
-        , subdivisions = 72
-        }
+    limb var.armLength
+        |> Drawable.translateIn Direction3d.negativeY
+            (Quantity.plus var.spacing var.headRadius
+                |> Quantity.plus var.armLength
+            )
 
 
-extremity : Mesh a (Mesh.Triangles Mesh.WithNormals Mesh.NoUV Mesh.NoTangents Mesh.ShadowsDisabled)
+limb : Length -> Drawable a
+limb length =
+    let
+        height =
+            Quantity.minus limbRadius length
+
+        trunk =
+            Shape.cylinder
+                { radius = limbRadius
+                , height = height
+                , subdivisions = 72
+                }
+    in
+    Drawable.group
+        [ bodyPart trunk
+        , extremity
+        , Drawable.translateIn Direction3d.z height extremity
+        ]
+        |> Drawable.rotateAround Axis3d.x (Angle.degrees 270)
+
+
+extremity : Drawable a
 extremity =
-    Shape.sphere
-        { radius = Quantity.divideBy 2 var.limbWidth
-        , subdivisions = 72
-        }
+    bodyPart <|
+        Shape.sphere
+            { radius = Quantity.divideBy 2 var.limbWidth
+            , subdivisions = 72
+            }
 
 
-torso : Mesh a (Mesh.Triangles Mesh.WithNormals Mesh.NoUV Mesh.NoTangents Mesh.ShadowsDisabled)
+torso : Drawable a
 torso =
-    Shape.block (Quantity.sum [ var.limbWidth, var.spacing, var.limbWidth ])
-        var.torsoLength
-        var.limbWidth
+    bodyPart <|
+        Shape.block (Quantity.sum [ var.limbWidth, var.spacing, var.limbWidth ])
+            var.torsoLength
+            var.limbWidth
 
 
 bodyPart : Mesh a (Mesh.Triangles Mesh.WithNormals uv tangents shadows) -> Drawable a
@@ -276,10 +276,23 @@ jointAtY y =
         Point3d.xyz Quantity.zero (Quantity.negate y) Quantity.zero
 
 
+limbRadius =
+    Quantity.divideBy 2 var.limbWidth
+
+
+armOffset =
+    Quantity.plus var.limbWidth limbRadius
+        |> Quantity.plus (Quantity.multiplyBy 2 var.spacing)
+
+
+legOffset =
+    Quantity.plus var.spacing limbRadius
+
+
 var =
-    { spacing = Length.meters 0.025
+    { spacing = Length.meters 0.045
     , headRadius = Length.meters 0.85
-    , limbWidth = Length.meters 0.85
+    , limbWidth = Length.meters 0.75
     , armLength = Length.meters 2.0
     , legLength = Length.meters 3.0
     , torsoLength = Length.meters 2.5
