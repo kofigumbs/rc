@@ -189,12 +189,11 @@ viewSubject model =
                         (Quantity.divideBy 2 var.limbWidth
                             |> Quantity.plus var.spacing
                         )
-
-            swing cadence distance =
-                Angle.degrees (sin (model.time / cadence) * distance)
         in
         [ bodyPart head
-            |> Drawable.rotateAround (jointAtY <| Quantity.plus var.headRadius var.spacing) (swing 90 5)
+            |> Drawable.rotateAround
+                (jointAtY <| Quantity.plus var.headRadius var.spacing)
+                (Angle.degrees <| curve model.time [ 15, -10, 10, -15, 10, -10 ])
         , bodyPart torso
             |> Drawable.translateIn Direction3d.negativeY
                 (Quantity.divideBy 2 var.torsoLength
@@ -202,22 +201,22 @@ viewSubject model =
                     |> Quantity.plus var.spacing
                 )
             |> Drawable.rotateAround
-                (jointAtY <|
-                    Quantity.sum
-                        [ var.headRadius
-                        , var.spacing
-                        , var.torsoLength
-                        ]
-                )
-                (swing 120 5)
+                (jointAtY <| Quantity.sum [ var.headRadius, var.spacing, var.torsoLength ])
+                (Angle.degrees <| curve model.time [ -5, 5 ])
         , arm_ Direction3d.x <|
-            Drawable.rotateAround Axis3d.z (Quantity.negate (swing 120 10))
+            Drawable.rotateAround Axis3d.z (Angle.degrees <| curve model.time [ 10, -10 ])
+                >> Drawable.rotateAround Axis3d.x (Angle.degrees <| curve model.time [ -15, -15, 15 ])
         , arm_ Direction3d.negativeX <|
-            Drawable.rotateAround Axis3d.z (Quantity.negate (swing 120 10))
+            Drawable.rotateAround Axis3d.z (Angle.degrees <| curve model.time [ 10, -10 ])
+                >> Drawable.rotateAround Axis3d.x (Angle.degrees <| curve model.time [ -15, -15, 15 ])
         , leg_ Direction3d.x <|
-            Drawable.rotateAround (jointAtY (Quantity.multiplyBy 2 var.legLength)) (Quantity.negate (swing 120 5))
+            Drawable.rotateAround
+                (jointAtY (Quantity.multiplyBy 2 var.legLength))
+                (Angle.degrees <| curve model.time [ 5, -5 ])
         , leg_ Direction3d.negativeX <|
-            Drawable.rotateAround (jointAtY (Quantity.multiplyBy 2 var.legLength)) (Quantity.negate (swing 120 5))
+            Drawable.rotateAround
+                (jointAtY (Quantity.multiplyBy 2 var.legLength))
+                (Angle.degrees <| curve model.time [ 5, -5 ])
         ]
 
 
@@ -286,3 +285,54 @@ var =
     , torsoLength = Length.meters 2.5
     , movement = Length.meters 0.85
     }
+
+
+
+-- CUBIC BEZIER
+-- from earlier experiments
+
+
+stepDuration =
+    350
+
+
+curve : Float -> List Float -> Float
+curve delta steps =
+    let
+        cycles =
+            delta / stepDuration
+
+        cyclesCompleted =
+            truncate cycles
+    in
+    case
+        List.drop
+            (modBy (List.length steps) cyclesCompleted)
+            (steps ++ List.take 1 steps)
+    of
+        first :: second :: _ ->
+            cubicBezier (cycles - toFloat cyclesCompleted) first second
+
+        _ ->
+            0
+
+
+cubicBezier : Float -> Float -> Float -> Float
+cubicBezier t p0 p3 =
+    let
+        controlPoint1 =
+            1.05
+
+        controlPoint2 =
+            0.75
+
+        p1 =
+            p0 + controlPoint1 * (p3 - p0)
+
+        p2 =
+            p0 + controlPoint2 * (p3 - p0)
+    in
+    (p0 * ((1 - t) ^ 3))
+        + (p1 * 3 * ((1 - t) ^ 2) * t)
+        + (p2 * 3 * (1 - t) * (t ^ 2))
+        + (p3 * (t ^ 3))
