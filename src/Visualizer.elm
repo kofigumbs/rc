@@ -43,7 +43,7 @@ type alias Model =
     , time : Float
     , width : Float
     , height : Float
-    , channels : Array Int
+    , channels : Array ( Int, Float )
     }
 
 
@@ -57,7 +57,7 @@ init flags =
       , time = 0
       , width = flags.width
       , height = flags.height
-      , channels = Array.repeat 8 0
+      , channels = Array.repeat 8 ( 0, 0 )
       }
     , Cmd.none
     )
@@ -89,8 +89,8 @@ update msg model =
                             Bitwise.and 0x07 status
                     in
                     case ( command, Array.get channel model.channels ) of
-                        ( 8, Just (oldValue as old) ) ->
-                            pure { model | channels = Array.set channel (oldValue + 1) model.channels }
+                        ( 8, Just ( old, _ ) ) ->
+                            pure { model | channels = Array.set channel ( old + 1, model.time ) model.channels }
 
                         _ ->
                             pure model
@@ -160,11 +160,10 @@ viewSubject model =
         , exposure = Exposure.fromMaxLuminance (Luminance.nits 10000)
         , whiteBalance = Chromaticity.daylight
         }
-    <|
         [ head
             |> Drawable.rotateAround
                 (jointAtY <| Quantity.plus var.headRadius var.spacing)
-                (Angle.degrees <| curve model.time [ 15, -10, 10, -15, 10, -10 ])
+                (Angle.degrees <| curve model 5 [ 15, -10, 10, -15, 10, -10 ])
         , torso
             |> Drawable.translateIn Direction3d.negativeY
                 (Quantity.divideBy 2 var.torsoLength
@@ -173,24 +172,24 @@ viewSubject model =
                 )
             |> Drawable.rotateAround
                 (jointAtY <| Quantity.sum [ var.headRadius, var.spacing, var.torsoLength ])
-                (Angle.degrees <| curve model.time [ -5, 5 ])
+                (Angle.degrees <| curve model 1 [ -5, 5 ])
         , arm
-            |> Drawable.rotateAround Axis3d.z (Angle.degrees <| curve model.time [ 10, -10 ])
-            |> Drawable.rotateAround Axis3d.x (Angle.degrees <| curve model.time [ -15, -15, 15 ])
+            |> Drawable.rotateAround Axis3d.z (Angle.degrees <| curve model 0 [ 10, -10 ])
+            |> Drawable.rotateAround Axis3d.x (Angle.degrees <| curve model 0 [ -15, -15, 15 ])
             |> Drawable.translateIn Direction3d.x armOffset
         , arm
-            |> Drawable.rotateAround Axis3d.z (Angle.degrees <| curve model.time [ 10, -10 ])
-            |> Drawable.rotateAround Axis3d.x (Angle.degrees <| curve model.time [ -15, -15, 15 ])
+            |> Drawable.rotateAround Axis3d.z (Angle.degrees <| curve model 0 [ 10, -10 ])
+            |> Drawable.rotateAround Axis3d.x (Angle.degrees <| curve model 0 [ -15, -15, 15 ])
             |> Drawable.translateIn Direction3d.negativeX armOffset
         , leg
             |> Drawable.rotateAround
                 (jointAtY (Quantity.multiplyBy 2 var.legLength))
-                (Angle.degrees <| curve model.time [ 5, -5 ])
+                (Angle.degrees <| curve model 1 [ 5, -5 ])
             |> Drawable.translateIn Direction3d.x legOffset
         , leg
             |> Drawable.rotateAround
                 (jointAtY (Quantity.multiplyBy 2 var.legLength))
-                (Angle.degrees <| curve model.time [ 5, -5 ])
+                (Angle.degrees <| curve model 1 [ 5, -5 ])
             |> Drawable.translateIn Direction3d.negativeX legOffset
         ]
 
@@ -309,22 +308,23 @@ stepDuration =
     350
 
 
-curve : Float -> List Float -> Float
-curve delta steps =
+curve : Model -> Int -> List Float -> Float
+curve model channel steps =
     let
-        cycles =
-            delta / stepDuration
+        ( completed, start ) =
+            Array.get channel model.channels
+                |> Maybe.withDefault ( 0, 0 )
 
-        cyclesCompleted =
-            truncate cycles
+        t =
+            min 1 ((model.time - start) / stepDuration)
     in
     case
         List.drop
-            (modBy (List.length steps) cyclesCompleted)
+            (modBy (List.length steps) completed)
             (steps ++ List.take 1 steps)
     of
         first :: second :: _ ->
-            cubicBezier (cycles - toFloat cyclesCompleted) first second
+            cubicBezier t first second
 
         _ ->
             0
