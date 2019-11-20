@@ -10,6 +10,8 @@ import Camera3d
 import Color exposing (Color)
 import Direction3d
 import Html exposing (Html)
+import Html.Attributes
+import Html.Events
 import Illuminance as Illuminance
 import Length exposing (Length)
 import Luminance as Luminance
@@ -39,11 +41,10 @@ main =
 
 
 type alias Model =
-    { step : Float
-    , time : Float
+    { time : Float
     , width : Float
     , height : Float
-    , channels : Array ( Int, Float )
+    , sync : Sync
     }
 
 
@@ -53,11 +54,10 @@ type alias Flags =
 
 init : Flags -> ( Model, Cmd Msg )
 init flags =
-    ( { step = 750
-      , time = 0
+    ( { time = 0
       , width = flags.width
       , height = flags.height
-      , channels = Array.repeat 8 ( 0, 0 )
+      , sync = Time
       }
     , Cmd.none
     )
@@ -66,6 +66,7 @@ init flags =
 type Msg
     = Diff Float
     | Resize Int Int
+    | SetToMusic Bool
     | GotMidiMessage (List Int)
 
 
@@ -78,9 +79,15 @@ update msg model =
         Resize width height ->
             pure { model | width = toFloat width, height = toFloat height }
 
+        SetToMusic True ->
+            pure { model | sync = Midi <| Array.repeat 8 ( 0, 0 ) }
+
+        SetToMusic False ->
+            pure { model | sync = Time }
+
         GotMidiMessage data ->
-            case data of
-                [ status, note, velocity ] ->
+            case ( model.sync, data ) of
+                ( Midi channels, [ status, note, velocity ] ) ->
                     let
                         command =
                             Bitwise.shiftRightBy 4 status
@@ -88,9 +95,9 @@ update msg model =
                         channel =
                             Bitwise.and 0x07 status
                     in
-                    case ( command, Array.get channel model.channels ) of
+                    case ( command, Array.get channel channels ) of
                         ( 8, Just ( old, _ ) ) ->
-                            pure { model | channels = Array.set channel ( old + 1, model.time ) model.channels }
+                            pure { model | sync = Midi <| Array.set channel ( old + 1, model.time ) channels }
 
                         _ ->
                             pure model
@@ -116,10 +123,29 @@ subscriptions model =
         ]
 
 
-view : Model -> Html msg
+view : Model -> Html Msg
 view model =
-    -- TODO add parameters that vary with channel data
-    viewSubject model
+    Html.div [ Html.Attributes.style "position" "relative" ]
+        [ viewSubject model
+        , Html.label
+            [ Html.Attributes.style "position" "absolute"
+            , Html.Attributes.style "top" "0"
+            , Html.Attributes.style "right" "0"
+            , Html.Attributes.style "background" "white"
+            , Html.Attributes.style "padding" "16px"
+            , Html.Attributes.style "border-bottom-left-radius" "4px"
+            , Html.Attributes.style "cursor" "pointer"
+            , Html.Attributes.style "font-family" "monospace"
+            ]
+            [ Html.text "to music: "
+            , Html.input
+                [ Html.Attributes.type_ "checkbox"
+                , Html.Attributes.checked (model.sync /= Time)
+                , Html.Events.onCheck SetToMusic
+                ]
+                []
+            ]
+        ]
 
 
 viewSubject : Model -> Html msg
@@ -161,112 +187,97 @@ viewSubject model =
         , whiteBalance = Chromaticity.daylight
         }
         [ head
-            |> Drawable.rotateAround
-                (jointAtY <| Quantity.plus var.headRadius var.spacing)
-                (Angle.degrees <| curve model 5 [ 15, -10, 10, -15, 10, -10 ])
+            |> Drawable.rotateAround shoulders
+                (Angle.degrees <| sync model 5 [ 15, -10, 10, -15, 10, -10 ])
         , torso
-            |> Drawable.translateIn Direction3d.negativeY
-                (Quantity.divideBy 2 var.torsoLength
-                    |> Quantity.plus var.headRadius
-                    |> Quantity.plus var.spacing
-                )
-            |> Drawable.rotateAround
-                (jointAtY <| Quantity.sum [ var.headRadius, var.spacing, var.torsoLength ])
-                (Angle.degrees <| curve model 1 [ -5, 5 ])
+            |> Drawable.rotateAround hips (Angle.degrees <| sync model 1 [ -5, 5 ])
         , arm
-            |> Drawable.rotateAround Axis3d.z (Angle.degrees <| curve model 0 [ 10, -10 ])
-            |> Drawable.rotateAround Axis3d.x (Angle.degrees <| curve model 0 [ -15, -15, 15 ])
+            |> Drawable.rotateAround Axis3d.z (Angle.degrees <| sync model 0 [ 10, -10 ])
+            |> Drawable.rotateAround Axis3d.x (Angle.degrees <| sync model 0 [ -15, -15, 15 ])
             |> Drawable.translateIn Direction3d.x armOffset
         , arm
-            |> Drawable.rotateAround Axis3d.z (Angle.degrees <| curve model 0 [ 10, -10 ])
-            |> Drawable.rotateAround Axis3d.x (Angle.degrees <| curve model 0 [ -15, -15, 15 ])
+            |> Drawable.rotateAround Axis3d.z (Angle.degrees <| sync model 0 [ 10, -10 ])
+            |> Drawable.rotateAround Axis3d.x (Angle.degrees <| sync model 0 [ -15, -15, 15 ])
             |> Drawable.translateIn Direction3d.negativeX armOffset
         , leg
-            |> Drawable.rotateAround
-                (jointAtY (Quantity.multiplyBy 2 var.legLength))
-                (Angle.degrees <| curve model 1 [ 5, -5 ])
+            |> Drawable.rotateAround feet (Angle.degrees <| sync model 1 [ 5, -5 ])
             |> Drawable.translateIn Direction3d.x legOffset
         , leg
-            |> Drawable.rotateAround
-                (jointAtY (Quantity.multiplyBy 2 var.legLength))
-                (Angle.degrees <| curve model 1 [ 5, -5 ])
+            |> Drawable.rotateAround feet (Angle.degrees <| sync model 1 [ 5, -5 ])
             |> Drawable.translateIn Direction3d.negativeX legOffset
         ]
 
 
 head : Drawable a
 head =
-    bodyPart <|
-        Shape.sphere
-            { radius = var.headRadius
-            , subdivisions = 72
-            }
+    bodyPart <| Shape.sphere { radius = var.headRadius, subdivisions = 72 }
 
 
 leg : Drawable a
 leg =
-    limb var.legLength
+    pill var.limbRadius var.legLength
         |> Drawable.translateIn Direction3d.negativeY
-            (Quantity.plus var.spacing var.headRadius
-                |> Quantity.plus var.torsoLength
-                |> Quantity.plus var.legLength
-            )
+            (Quantity.sum [ var.headRadius, var.spacing, var.torsoLength, var.spacing ])
 
 
 arm : Drawable a
 arm =
-    limb var.armLength
-        |> Drawable.translateIn Direction3d.negativeY
-            (Quantity.plus var.spacing var.headRadius
-                |> Quantity.plus var.armLength
-            )
-
-
-limb : Length -> Drawable a
-limb length =
-    let
-        height =
-            Quantity.minus limbRadius length
-
-        trunk =
-            Shape.cylinder
-                { radius = limbRadius
-                , height = height
-                , subdivisions = 72
-                }
-    in
-    Drawable.group
-        [ bodyPart trunk
-        , extremity
-        , Drawable.translateIn Direction3d.z height extremity
-        ]
-        |> Drawable.rotateAround Axis3d.x (Angle.degrees 270)
-
-
-extremity : Drawable a
-extremity =
-    bodyPart <|
-        Shape.sphere
-            { radius = Quantity.divideBy 2 var.limbWidth
-            , subdivisions = 72
-            }
+    pill var.limbRadius var.armLength
+        |> Drawable.translateIn Direction3d.negativeY (Quantity.plus var.spacing var.headRadius)
 
 
 torso : Drawable a
 torso =
-    bodyPart <|
-        Shape.block (Quantity.sum [ var.limbWidth, var.spacing, var.limbWidth ])
-            var.torsoLength
-            var.limbWidth
+    let
+        radius =
+            Quantity.plus var.headRadius var.limbRadius
+                |> Quantity.half
+    in
+    pill radius var.torsoLength
+        |> Drawable.translateIn Direction3d.negativeY (Quantity.plus var.spacing var.headRadius)
+
+
+pill : Length -> Length -> Drawable a
+pill radius length =
+    let
+        height =
+            Quantity.minus (Quantity.twice radius) length
+
+        trunk =
+            Shape.cylinder { radius = radius, height = height, subdivisions = 72 }
+
+        end =
+            Shape.sphere { radius = radius, subdivisions = 72 }
+    in
+    Drawable.group
+        [ bodyPart trunk
+            |> Drawable.translateIn Direction3d.z radius
+        , bodyPart end
+            |> Drawable.translateIn Direction3d.z radius
+        , bodyPart end
+            |> Drawable.translateIn Direction3d.z (Quantity.plus radius height)
+        ]
+        |> Drawable.rotateAround Axis3d.x (Angle.degrees 90)
 
 
 bodyPart : Mesh a (Mesh.Triangles Mesh.WithNormals uv tangents shadows) -> Drawable a
 bodyPart =
-    Drawable.physical
-        { baseColor = Color.white
-        , roughness = 0.25
-        , metallic = False
-        }
+    Drawable.physical { baseColor = Color.white, roughness = 0.25, metallic = False }
+
+
+shoulders : Axis3d Length.Meters c
+shoulders =
+    jointAtY <| Quantity.plus var.headRadius var.spacing
+
+
+hips : Axis3d Length.Meters c
+hips =
+    jointAtY <| Quantity.sum [ var.headRadius, var.spacing, var.torsoLength ]
+
+
+feet : Axis3d Length.Meters c
+feet =
+    jointAtY <| Quantity.sum [ var.headRadius, var.spacing, var.torsoLength, var.spacing, var.legLength ]
 
 
 jointAtY : Length -> Axis3d Length.Meters c
@@ -275,28 +286,57 @@ jointAtY y =
         Point3d.xyz Quantity.zero (Quantity.negate y) Quantity.zero
 
 
-limbRadius =
-    Quantity.divideBy 2 var.limbWidth
-
-
+armOffset : Length
 armOffset =
-    Quantity.plus var.limbWidth limbRadius
-        |> Quantity.plus (Quantity.multiplyBy 2 var.spacing)
+    Quantity.plus (Quantity.twice var.limbRadius) var.limbRadius
+        |> Quantity.plus (Quantity.twice var.spacing)
 
 
+legOffset : Length
 legOffset =
-    Quantity.plus var.spacing limbRadius
+    Quantity.plus var.spacing var.limbRadius
 
 
 var =
     { spacing = Length.meters 0.045
     , headRadius = Length.meters 0.85
-    , limbWidth = Length.meters 0.75
+    , limbRadius = Length.meters 0.375
     , armLength = Length.meters 2.0
     , legLength = Length.meters 3.0
     , torsoLength = Length.meters 2.5
     , movement = Length.meters 0.85
     }
+
+
+
+-- TIMING
+
+
+type Sync
+    = Time
+    | Midi (Array ( Int, Float ))
+
+
+sync : { a | sync : Sync, time : Float } -> Int -> List Float -> Float
+sync model channel steps =
+    case model.sync of
+        Time ->
+            let
+                cycles =
+                    model.time / stepDuration
+
+                cyclesCompleted =
+                    truncate cycles
+            in
+            curve cyclesCompleted (cycles - toFloat cyclesCompleted) steps
+
+        Midi channels ->
+            let
+                ( cyclesCompleted, start ) =
+                    Array.get channel channels
+                        |> Maybe.withDefault ( 0, 0 )
+            in
+            curve cyclesCompleted (min 1 ((model.time - start) / stepDuration)) steps
 
 
 
@@ -308,16 +348,8 @@ stepDuration =
     350
 
 
-curve : Model -> Int -> List Float -> Float
-curve model channel steps =
-    let
-        ( completed, start ) =
-            Array.get channel model.channels
-                |> Maybe.withDefault ( 0, 0 )
-
-        t =
-            min 1 ((model.time - start) / stepDuration)
-    in
+curve : Int -> Float -> List Float -> Float
+curve completed t steps =
     case
         List.drop
             (modBy (List.length steps) completed)
