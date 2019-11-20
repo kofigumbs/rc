@@ -8,7 +8,7 @@ import Browser
 import Browser.Events
 import Camera3d
 import Color exposing (Color)
-import Direction3d
+import Direction3d exposing (Direction3d)
 import Html exposing (Html)
 import Html.Attributes
 import Html.Events
@@ -45,6 +45,7 @@ type alias Model =
     , width : Float
     , height : Float
     , sync : Sync
+    , dance : Dance
     }
 
 
@@ -58,6 +59,7 @@ init flags =
       , width = flags.width
       , height = flags.height
       , sync = Time
+      , dance = floss
       }
     , Cmd.none
     )
@@ -66,6 +68,7 @@ init flags =
 type Msg
     = Diff Float
     | Resize Int Int
+    | SetDance Dance
     | SetToMusic Bool
     | GotMidiMessage (List Int)
 
@@ -78,6 +81,9 @@ update msg model =
 
         Resize width height ->
             pure { model | width = toFloat width, height = toFloat height }
+
+        SetDance dance_ ->
+            pure { model | dance = dance_ }
 
         SetToMusic True ->
             pure { model | sync = Midi <| Array.repeat 8 ( 0, 0 ) }
@@ -127,25 +133,28 @@ view : Model -> Html Msg
 view model =
     Html.div [ Html.Attributes.style "position" "relative" ]
         [ viewSubject model
-        , Html.label
-            [ Html.Attributes.style "position" "absolute"
-            , Html.Attributes.style "top" "0"
-            , Html.Attributes.style "right" "0"
-            , Html.Attributes.style "background" "white"
-            , Html.Attributes.style "padding" "16px"
-            , Html.Attributes.style "border-bottom-left-radius" "4px"
-            , Html.Attributes.style "cursor" "pointer"
-            , Html.Attributes.style "font-family" "monospace"
-            ]
-            [ Html.text "to music: "
-            , Html.input
-                [ Html.Attributes.type_ "checkbox"
-                , Html.Attributes.checked (model.sync /= Time)
-                , Html.Events.onCheck SetToMusic
+        , Html.div [ Html.Attributes.class "controls" ]
+            [ button (SetDance floss) "floss"
+            , Html.text " | "
+            , button (SetDance macarena) "macarena"
+            , Html.text " | "
+            , Html.label
+                [ Html.Attributes.style "cursor" "pointer" ]
+                [ Html.text "use midi:"
+                , Html.input
+                    [ Html.Attributes.type_ "checkbox"
+                    , Html.Attributes.checked (model.sync /= Time)
+                    , Html.Events.onCheck SetToMusic
+                    ]
+                    []
                 ]
-                []
             ]
         ]
+
+
+button : msg -> String -> Html msg
+button msg label =
+    Html.a [ Html.Attributes.href "#", Html.Events.onClick msg ] [ Html.text label ]
 
 
 viewSubject : Model -> Html msg
@@ -186,26 +195,25 @@ viewSubject model =
         , exposure = Exposure.fromMaxLuminance (Luminance.nits 10000)
         , whiteBalance = Chromaticity.daylight
         }
-        [ head
-            |> Drawable.rotateAround shoulders
-                (Angle.degrees <| sync model 5 [ 15, -10, 10, -15, 10, -10 ])
-        , torso
-            |> Drawable.rotateAround hips (Angle.degrees <| sync model 1 [ -5, 5 ])
-        , arm
-            |> Drawable.rotateAround Axis3d.z (Angle.degrees <| sync model 0 [ 10, -10 ])
-            |> Drawable.rotateAround Axis3d.x (Angle.degrees <| sync model 0 [ -15, -15, 15 ])
-            |> Drawable.translateIn Direction3d.x armOffset
-        , arm
-            |> Drawable.rotateAround Axis3d.z (Angle.degrees <| sync model 0 [ 10, -10 ])
-            |> Drawable.rotateAround Axis3d.x (Angle.degrees <| sync model 0 [ -15, -15, 15 ])
+        [ dance model head model.dance.head
+        , dance model torso model.dance.torso
+        , dance model arm model.dance.leftArm
             |> Drawable.translateIn Direction3d.negativeX armOffset
-        , leg
-            |> Drawable.rotateAround feet (Angle.degrees <| sync model 1 [ 5, -5 ])
-            |> Drawable.translateIn Direction3d.x legOffset
-        , leg
-            |> Drawable.rotateAround feet (Angle.degrees <| sync model 1 [ 5, -5 ])
+        , dance model arm model.dance.rightArm
+            |> Drawable.translateIn Direction3d.x armOffset
+        , dance model leg model.dance.leftLeg
             |> Drawable.translateIn Direction3d.negativeX legOffset
+        , dance model leg model.dance.rightLeg
+            |> Drawable.translateIn Direction3d.x legOffset
         ]
+
+
+dance : Model -> Drawable () -> List Move -> Drawable ()
+dance model =
+    List.foldl <|
+        \move ->
+            Drawable.rotateAround move.axis <|
+                Angle.degrees (sync model move.channel move.steps)
 
 
 head : Drawable a
@@ -228,12 +236,7 @@ arm =
 
 torso : Drawable a
 torso =
-    let
-        radius =
-            Quantity.plus var.headRadius var.limbRadius
-                |> Quantity.half
-    in
-    pill radius var.torsoLength
+    pill torsoRadius var.torsoLength
         |> Drawable.translateIn Direction3d.negativeY (Quantity.plus var.spacing var.headRadius)
 
 
@@ -265,31 +268,15 @@ bodyPart =
     Drawable.physical { baseColor = Color.white, roughness = 0.25, metallic = False }
 
 
-shoulders : Axis3d Length.Meters c
-shoulders =
-    jointAtY <| Quantity.plus var.headRadius var.spacing
-
-
-hips : Axis3d Length.Meters c
-hips =
-    jointAtY <| Quantity.sum [ var.headRadius, var.spacing, var.torsoLength ]
-
-
-feet : Axis3d Length.Meters c
-feet =
-    jointAtY <| Quantity.sum [ var.headRadius, var.spacing, var.torsoLength, var.spacing, var.legLength ]
-
-
-jointAtY : Length -> Axis3d Length.Meters c
-jointAtY y =
-    Axis3d.withDirection Direction3d.z <|
-        Point3d.xyz Quantity.zero (Quantity.negate y) Quantity.zero
+torsoRadius : Length
+torsoRadius =
+    Quantity.plus var.headRadius var.limbRadius
+        |> Quantity.half
 
 
 armOffset : Length
 armOffset =
-    Quantity.plus (Quantity.twice var.limbRadius) var.limbRadius
-        |> Quantity.plus (Quantity.twice var.spacing)
+    Quantity.sum [ torsoRadius, var.spacing, var.limbRadius ]
 
 
 legOffset : Length
@@ -298,18 +285,178 @@ legOffset =
 
 
 var =
-    { spacing = Length.meters 0.045
+    { spacing = Length.meters 0.075
     , headRadius = Length.meters 0.85
     , limbRadius = Length.meters 0.375
     , armLength = Length.meters 2.0
-    , legLength = Length.meters 3.0
+    , legLength = Length.meters 2.8
     , torsoLength = Length.meters 2.5
     , movement = Length.meters 0.85
     }
 
 
 
--- TIMING
+-- DANCE
+
+
+type alias Dance =
+    { head : List Move
+    , torso : List Move
+    , leftArm : List Move
+    , rightArm : List Move
+    , leftLeg : List Move
+    , rightLeg : List Move
+    }
+
+
+type alias Move =
+    { channel : Int
+    , steps : List Float
+    , axis : Axis3d Length.Meters ()
+    }
+
+
+floss : Dance
+floss =
+    { head =
+        [ { channel = 5, steps = [ 15, -10, 10, -15, 10, -10 ], axis = shouldersZ } ]
+    , torso =
+        [ { channel = 1, steps = [ -5, 5 ], axis = hips } ]
+    , leftArm =
+        [ { channel = 0, steps = [ 10, -10 ], axis = Axis3d.z }
+        , { channel = 0, steps = [ -15, -15, 15 ], axis = Axis3d.x }
+        ]
+    , rightArm =
+        [ { channel = 0, steps = [ 10, -10 ], axis = Axis3d.z }
+        , { channel = 0, steps = [ -15, -15, 15 ], axis = Axis3d.x }
+        ]
+    , leftLeg =
+        [ { channel = 1, steps = [ 5, -5 ], axis = feet } ]
+    , rightLeg =
+        [ { channel = 1, steps = [ 5, -5 ], axis = feet } ]
+    }
+
+
+macarena : Dance
+macarena =
+    let
+        shake vigor =
+            List.map ((*) vigor) <|
+                List.concat
+                    [ [ 0, 0, 0, 0, 0, 0, 0, 0 ]
+                    , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
+                    , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
+                    , [ 0, 0, 0, 0, 1, -1, 1, -1 ]
+                    ]
+    in
+    { head =
+        [ { channel = 0, steps = shake 5, axis = shouldersZ } ]
+    , torso =
+        [ { channel = 0, steps = shake 10, axis = hips } ]
+    , leftArm =
+        [ { channel = 0
+          , steps =
+                List.concat
+                    [ [ 0, 0, 0, 0, -5, 0, 0, 0 ]
+                    , [ -15, -15, -15, -15, 30, 30, 30, 30 ]
+                    , [ 0, 0, 0, 0, 30, 30, 30, 30 ]
+                    , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
+                    ]
+          , axis = shouldersZ
+          }
+        , { channel = 0
+          , steps =
+                List.concat
+                    [ [ 0, 0, 0, 0, -90, -90, -90, -90 ]
+                    , [ -95, -90, -90, -90, -105, -105, -105, -105 ]
+                    , [ -150, -150, -150, -150, -60, -60, -60, -60 ]
+                    , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
+                    ]
+          , axis = shouldersX
+          }
+        , { channel = 0
+          , steps =
+                List.concat
+                    [ [ 0, 0, 0, 0, 0, 0, 0, 0 ]
+                    , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
+                    , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
+                    , [ 10, 10, 10, 10, 10, -10, 10, -10 ]
+                    ]
+          , axis = hips
+          }
+        ]
+    , rightArm =
+        [ { channel = 0
+          , steps =
+                List.concat
+                    [ [ 0, 0, 0, 0, 0, 0, 5, 0, 0, 0 ]
+                    , [ 15, 15, 15, 15, -30, -30, -30, -30 ]
+                    , [ 0, 0, 0, 0, -30, -30, -30, -30 ]
+                    , [ 0, 0, 0, 0, 0, 0 ]
+                    ]
+          , axis = shouldersZ
+          }
+        , { channel = 0
+          , steps =
+                List.concat
+                    [ [ 0, 0, 0, 0, 0, 0, -90, -90, -90, -90 ]
+                    , [ -95, -90, -90, -90, -105, -105, -105, -105 ]
+                    , [ -150, -150, -150, -150, -60, -60, -60, -60 ]
+                    , [ 0, 0, 0, 0, 0, 0 ]
+                    ]
+          , axis = shouldersX
+          }
+        , { channel = 0
+          , steps =
+                List.concat
+                    [ [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ]
+                    , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
+                    , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
+                    , [ -10, -10, -10, -10, 10, -10 ]
+                    ]
+          , axis = hips
+          }
+        ]
+    , leftLeg =
+        [ { channel = 0, steps = shake -5, axis = feet } ]
+    , rightLeg =
+        [ { channel = 0, steps = shake -5, axis = feet } ]
+    }
+
+
+shouldersX : Axis3d Length.Meters c
+shouldersX =
+    shoulders Direction3d.x
+
+
+shouldersZ : Axis3d Length.Meters c
+shouldersZ =
+    shoulders Direction3d.z
+
+
+shoulders : Direction3d c -> Axis3d Length.Meters c
+shoulders direction =
+    joint direction <| Quantity.plus var.headRadius var.spacing
+
+
+hips : Axis3d Length.Meters c
+hips =
+    joint Direction3d.z <| Quantity.sum [ var.headRadius, var.spacing, var.torsoLength ]
+
+
+feet : Axis3d Length.Meters c
+feet =
+    joint Direction3d.z <| Quantity.sum [ var.headRadius, var.spacing, var.torsoLength, var.spacing, var.legLength ]
+
+
+joint : Direction3d c -> Length -> Axis3d Length.Meters c
+joint dir y =
+    Axis3d.withDirection dir <|
+        Point3d.xyz Quantity.zero (Quantity.negate y) Quantity.zero
+
+
+
+-- SYNC
 
 
 type Sync
