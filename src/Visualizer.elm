@@ -13,6 +13,7 @@ import Html exposing (Html)
 import Html.Attributes
 import Html.Events
 import Illuminance as Illuminance
+import Json.Decode as D
 import Length exposing (Length)
 import Luminance as Luminance
 import Pixels
@@ -45,7 +46,7 @@ type alias Model =
     , width : Float
     , height : Float
     , sync : Sync
-    , dance : Dance
+    , channels : Array ( Int, Float )
     }
 
 
@@ -58,8 +59,8 @@ init flags =
     ( { time = 0
       , width = flags.width
       , height = flags.height
-      , sync = Time
-      , dance = floss
+      , sync = Hardcoded floss
+      , channels = Array.repeat 8 ( 0, 0 )
       }
     , Cmd.none
     )
@@ -68,8 +69,7 @@ init flags =
 type Msg
     = Diff Float
     | Resize Int Int
-    | SetDance Dance
-    | SetToMusic Bool
+    | SetSync Sync
     | GotMidiMessage (List Int)
 
 
@@ -82,18 +82,12 @@ update msg model =
         Resize width height ->
             pure { model | width = toFloat width, height = toFloat height }
 
-        SetDance dance_ ->
-            pure { model | dance = dance_ }
-
-        SetToMusic True ->
-            pure { model | sync = Midi <| Array.repeat 8 ( 0, 0 ) }
-
-        SetToMusic False ->
-            pure { model | sync = Time }
+        SetSync sync_ ->
+            pure { model | sync = sync_ }
 
         GotMidiMessage data ->
             case ( model.sync, data ) of
-                ( Midi channels, [ status, note, velocity ] ) ->
+                ( Midi, [ status, note, velocity ] ) ->
                     let
                         command =
                             Bitwise.shiftRightBy 4 status
@@ -101,9 +95,9 @@ update msg model =
                         channel =
                             Bitwise.and 0x07 status
                     in
-                    case ( command, Array.get channel channels ) of
+                    case ( command, Array.get channel model.channels ) of
                         ( 8, Just ( old, _ ) ) ->
-                            pure { model | sync = Midi <| Array.set channel ( old + 1, model.time ) channels }
+                            pure { model | channels = Array.set channel ( old + 1, model.time ) model.channels }
 
                         _ ->
                             pure model
@@ -133,28 +127,44 @@ view : Model -> Html Msg
 view model =
     Html.div [ Html.Attributes.style "position" "relative" ]
         [ viewSubject model
-        , Html.div [ Html.Attributes.class "controls" ]
-            [ button (SetDance floss) "floss"
-            , Html.text " | "
-            , button (SetDance macarena) "macarena"
-            , Html.text " | "
-            , Html.label
-                [ Html.Attributes.style "cursor" "pointer" ]
-                [ Html.text "use midi:"
-                , Html.input
-                    [ Html.Attributes.type_ "checkbox"
-                    , Html.Attributes.checked (model.sync /= Time)
-                    , Html.Events.onCheck SetToMusic
-                    ]
-                    []
+        , Html.div [ Html.Attributes.class "controls" ] <|
+            radio SetSync model.sync <|
+                [ ( Hardcoded floss, Html.text "floss" )
+                , ( Hardcoded macarena, Html.text "macarena" )
+                , ( Midi, Html.b [] [ Html.text "midi" ] )
                 ]
-            ]
         ]
 
 
-button : msg -> String -> Html msg
-button msg label =
-    Html.a [ Html.Attributes.href "#", Html.Events.onClick msg ] [ Html.text label ]
+radio : (a -> msg) -> a -> List ( a, Html msg ) -> List (Html msg)
+radio toMsg value =
+    List.indexedMap <|
+        \index ( thisValue, thisLabel ) ->
+            Html.label []
+                [ Html.input
+                    [ Html.Attributes.name "radio"
+                    , Html.Attributes.type_ "radio"
+                    , Html.Attributes.value (String.fromInt index)
+                    , Html.Attributes.checked (thisValue == value)
+                    , onChange (String.fromInt index) (toMsg thisValue)
+                    ]
+                    []
+                , Html.text " "
+                , thisLabel
+                ]
+
+
+onChange : String -> msg -> Html.Attribute msg
+onChange this msg =
+    Html.Events.on "change" <|
+        D.andThen
+            (\x ->
+                if x == this then
+                    D.succeed msg
+                else
+                    D.fail ""
+            )
+            Html.Events.targetValue
 
 
 viewSubject : Model -> Html msg
@@ -186,7 +196,7 @@ viewSubject model =
                 , zenithLuminance = Luminance.nits 5000
                 }
     in
-    Scene3d.render [ Scene3d.clearColor Color.black ]
+    Scene3d.render [ Scene3d.clearColor (Color.rgb255 72 72 72) ]
         { camera = camera
         , width = Pixels.pixels model.width
         , height = Pixels.pixels model.height
@@ -195,25 +205,17 @@ viewSubject model =
         , exposure = Exposure.fromMaxLuminance (Luminance.nits 10000)
         , whiteBalance = Chromaticity.daylight
         }
-        [ dance model head model.dance.head
-        , dance model torso model.dance.torso
-        , dance model arm model.dance.leftArm
+        [ dance model head .head
+        , dance model torso .torso
+        , dance model arm .leftArm
             |> Drawable.translateIn Direction3d.negativeX armOffset
-        , dance model arm model.dance.rightArm
+        , dance model arm .rightArm
             |> Drawable.translateIn Direction3d.x armOffset
-        , dance model leg model.dance.leftLeg
+        , dance model leg .leftLeg
             |> Drawable.translateIn Direction3d.negativeX legOffset
-        , dance model leg model.dance.rightLeg
+        , dance model leg .rightLeg
             |> Drawable.translateIn Direction3d.x legOffset
         ]
-
-
-dance : Model -> Drawable () -> List Move -> Drawable ()
-dance model =
-    List.foldl <|
-        \move ->
-            Drawable.rotateAround move.axis <|
-                Angle.degrees (sync model move.channel move.steps)
 
 
 head : Drawable a
@@ -296,7 +298,53 @@ var =
 
 
 
--- DANCE
+-- SYNC + DANCE
+
+
+type Sync
+    = Hardcoded Dance
+    | Midi
+
+
+dance : Model -> Drawable () -> (Dance -> List Move) -> Drawable ()
+dance model initial getter =
+    case model.sync of
+        Hardcoded dance_ ->
+            List.foldl
+                (\move ->
+                    Drawable.rotateAround move.axis <|
+                        Angle.degrees (sync model move.steps)
+                )
+                initial
+                (getter dance_)
+
+        Midi ->
+            -- TODO
+            initial
+
+
+sync : Model -> List Float -> Float
+sync model steps =
+    case model.sync of
+        Hardcoded dance_ ->
+            let
+                progress =
+                    model.time / stepDuration
+
+                step =
+                    truncate progress
+            in
+            curve step (progress - toFloat step) steps
+
+        Midi ->
+            let
+                ( step, start ) =
+                    -- TODO
+                    -- Array.get channel model.channels
+                    --     |> Maybe.withDefault ( 0, 0 )
+                    ( 0, 0 )
+            in
+            curve step (min 1 ((model.time - start) / stepDuration)) steps
 
 
 type alias Dance =
@@ -310,8 +358,7 @@ type alias Dance =
 
 
 type alias Move =
-    { channel : Int
-    , steps : List Float
+    { steps : List Float
     , axis : Axis3d Length.Meters ()
     }
 
@@ -319,21 +366,21 @@ type alias Move =
 floss : Dance
 floss =
     { head =
-        [ { channel = 5, steps = [ 15, -10, 10, -15, 10, -10 ], axis = shouldersZ } ]
+        [ { steps = [ 15, -10, 10, -15, 10, -10 ], axis = shouldersZ } ]
     , torso =
-        [ { channel = 1, steps = [ -5, 5 ], axis = hips } ]
+        [ { steps = [ -5, 5 ], axis = hips } ]
     , leftArm =
-        [ { channel = 0, steps = [ 10, -10 ], axis = Axis3d.z }
-        , { channel = 0, steps = [ -15, -15, 15 ], axis = Axis3d.x }
+        [ { steps = [ 10, -10 ], axis = Axis3d.z }
+        , { steps = [ -15, -15, 15 ], axis = Axis3d.x }
         ]
     , rightArm =
-        [ { channel = 0, steps = [ 10, -10 ], axis = Axis3d.z }
-        , { channel = 0, steps = [ -15, -15, 15 ], axis = Axis3d.x }
+        [ { steps = [ 10, -10 ], axis = Axis3d.z }
+        , { steps = [ -15, -15, 15 ], axis = Axis3d.x }
         ]
     , leftLeg =
-        [ { channel = 1, steps = [ 5, -5 ], axis = feet } ]
+        [ { steps = [ 5, -5 ], axis = feet } ]
     , rightLeg =
-        [ { channel = 1, steps = [ 5, -5 ], axis = feet } ]
+        [ { steps = [ 5, -5 ], axis = feet } ]
     }
 
 
@@ -350,12 +397,11 @@ macarena =
                     ]
     in
     { head =
-        [ { channel = 0, steps = shake 5, axis = shouldersZ } ]
+        [ { steps = shake 5, axis = shouldersZ } ]
     , torso =
-        [ { channel = 0, steps = shake 10, axis = hips } ]
+        [ { steps = shake 10, axis = hips } ]
     , leftArm =
-        [ { channel = 0
-          , steps =
+        [ { steps =
                 List.concat
                     [ [ 0, 0, 0, 0, -5, 0, 0, 0 ]
                     , [ -15, -15, -15, -15, 30, 30, 30, 30 ]
@@ -364,8 +410,7 @@ macarena =
                     ]
           , axis = shouldersZ
           }
-        , { channel = 0
-          , steps =
+        , { steps =
                 List.concat
                     [ [ 0, 0, 0, 0, -90, -90, -90, -90 ]
                     , [ -95, -90, -90, -90, -105, -105, -105, -105 ]
@@ -374,8 +419,7 @@ macarena =
                     ]
           , axis = shouldersX
           }
-        , { channel = 0
-          , steps =
+        , { steps =
                 List.concat
                     [ [ 0, 0, 0, 0, 0, 0, 0, 0 ]
                     , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
@@ -386,8 +430,7 @@ macarena =
           }
         ]
     , rightArm =
-        [ { channel = 0
-          , steps =
+        [ { steps =
                 List.concat
                     [ [ 0, 0, 0, 0, 0, 0, 5, 0, 0, 0 ]
                     , [ 15, 15, 15, 15, -30, -30, -30, -30 ]
@@ -396,8 +439,7 @@ macarena =
                     ]
           , axis = shouldersZ
           }
-        , { channel = 0
-          , steps =
+        , { steps =
                 List.concat
                     [ [ 0, 0, 0, 0, 0, 0, -90, -90, -90, -90 ]
                     , [ -95, -90, -90, -90, -105, -105, -105, -105 ]
@@ -406,8 +448,7 @@ macarena =
                     ]
           , axis = shouldersX
           }
-        , { channel = 0
-          , steps =
+        , { steps =
                 List.concat
                     [ [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ]
                     , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
@@ -418,9 +459,9 @@ macarena =
           }
         ]
     , leftLeg =
-        [ { channel = 0, steps = shake -5, axis = feet } ]
+        [ { steps = shake -5, axis = feet } ]
     , rightLeg =
-        [ { channel = 0, steps = shake -5, axis = feet } ]
+        [ { steps = shake -5, axis = feet } ]
     }
 
 
@@ -456,43 +497,12 @@ joint dir y =
 
 
 
--- SYNC
-
-
-type Sync
-    = Time
-    | Midi (Array ( Int, Float ))
-
-
-sync : { a | sync : Sync, time : Float } -> Int -> List Float -> Float
-sync model channel steps =
-    case model.sync of
-        Time ->
-            let
-                cycles =
-                    model.time / stepDuration
-
-                cyclesCompleted =
-                    truncate cycles
-            in
-            curve cyclesCompleted (cycles - toFloat cyclesCompleted) steps
-
-        Midi channels ->
-            let
-                ( cyclesCompleted, start ) =
-                    Array.get channel channels
-                        |> Maybe.withDefault ( 0, 0 )
-            in
-            curve cyclesCompleted (min 1 ((model.time - start) / stepDuration)) steps
-
-
-
 -- CUBIC BEZIER
 -- from earlier experiments
 
 
 stepDuration =
-    350
+    280
 
 
 curve : Int -> Float -> List Float -> Float
