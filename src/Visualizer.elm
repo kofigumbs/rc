@@ -27,6 +27,7 @@ import Scene3d.Light as Light
 import Scene3d.Mesh as Mesh exposing (Mesh)
 import Scene3d.Shape as Shape
 import SketchPlane3d
+import Time
 import Triangle3d
 import Viewpoint3d
 
@@ -50,6 +51,16 @@ type alias Model =
     }
 
 
+type alias Body a =
+    { head : a
+    , torso : a
+    , leftArm : a
+    , rightArm : a
+    , leftLeg : a
+    , rightLeg : a
+    }
+
+
 type alias Flags =
     { width : Float, height : Float }
 
@@ -59,7 +70,7 @@ init flags =
     ( { time = 0
       , width = flags.width
       , height = flags.height
-      , sync = Hardcoded floss
+      , sync = floss
       , channels = Array.repeat 8 ( 0, 0 )
       }
     , Cmd.none
@@ -96,6 +107,7 @@ update msg model =
                             Bitwise.and 0x07 status
                     in
                     case ( command, Array.get channel model.channels ) of
+                        -- TODO command 248, midi clock
                         ( 8, Just ( old, _ ) ) ->
                             pure { model | channels = Array.set channel ( old + 1, model.time ) model.channels }
 
@@ -129,8 +141,8 @@ view model =
         [ viewSubject model
         , Html.div [ Html.Attributes.class "controls" ] <|
             radio SetSync model.sync <|
-                [ ( Hardcoded floss, Html.text "floss" )
-                , ( Hardcoded macarena, Html.text "macarena" )
+                [ ( floss, Html.text "floss" )
+                , ( macarena, Html.text "macarena" )
                 , ( Midi, Html.b [] [ Html.text "midi" ] )
                 ]
         ]
@@ -272,8 +284,7 @@ bodyPart =
 
 torsoRadius : Length
 torsoRadius =
-    Quantity.plus var.headRadius var.limbRadius
-        |> Quantity.half
+    Quantity.half (Quantity.plus var.headRadius var.limbRadius)
 
 
 armOffset : Length
@@ -302,59 +313,38 @@ var =
 
 
 type Sync
-    = Hardcoded Dance
+    = Hardcoded Float (Body (List Move))
     | Midi
 
 
-dance : Model -> Drawable () -> (Dance -> List Move) -> Drawable ()
+dance : Model -> Drawable () -> (Body (List Move) -> List Move) -> Drawable ()
 dance model initial getter =
     case model.sync of
-        Hardcoded dance_ ->
-            List.foldl
-                (\move ->
-                    Drawable.rotateAround move.axis <|
-                        Angle.degrees (sync model move.steps)
-                )
-                initial
-                (getter dance_)
-
-        Midi ->
-            -- TODO
-            initial
-
-
-sync : Model -> List Float -> Float
-sync model steps =
-    case model.sync of
-        Hardcoded dance_ ->
+        Hardcoded stepDuration dance_ ->
             let
                 progress =
                     model.time / stepDuration
 
-                step =
-                    truncate progress
+                start =
+                    floor progress
+
+                apply move =
+                    curve start (progress - toFloat start) move.steps
+                        |> Angle.degrees
+                        |> Drawable.rotateAround move.axis
             in
-            curve step (progress - toFloat step) steps
+            List.foldl apply initial (getter dance_)
 
         Midi ->
-            let
-                ( step, start ) =
-                    -- TODO
-                    -- Array.get channel model.channels
-                    --     |> Maybe.withDefault ( 0, 0 )
-                    ( 0, 0 )
-            in
-            curve step (min 1 ((model.time - start) / stepDuration)) steps
-
-
-type alias Dance =
-    { head : List Move
-    , torso : List Move
-    , leftArm : List Move
-    , rightArm : List Move
-    , leftLeg : List Move
-    , rightLeg : List Move
-    }
+            -- TODO
+            -- let
+            --   ( step, start ) =
+            --     Array.get channel model.channels
+            --       |> Maybe.withDefault ( 0, 0 )
+            -- in
+            -- curve step (min 1 ((model.time - start) / stepDuration)) steps
+            --
+            initial
 
 
 type alias Move =
@@ -363,28 +353,29 @@ type alias Move =
     }
 
 
-floss : Dance
+floss : Sync
 floss =
-    { head =
-        [ { steps = [ 15, -10, 10, -15, 10, -10 ], axis = shouldersZ } ]
-    , torso =
-        [ { steps = [ -5, 5 ], axis = hips } ]
-    , leftArm =
-        [ { steps = [ 10, -10 ], axis = Axis3d.z }
-        , { steps = [ -15, -15, 15 ], axis = Axis3d.x }
-        ]
-    , rightArm =
-        [ { steps = [ 10, -10 ], axis = Axis3d.z }
-        , { steps = [ -15, -15, 15 ], axis = Axis3d.x }
-        ]
-    , leftLeg =
-        [ { steps = [ 5, -5 ], axis = feet } ]
-    , rightLeg =
-        [ { steps = [ 5, -5 ], axis = feet } ]
-    }
+    Hardcoded 350
+        { head =
+            [ { steps = [ 15, -10, 10, -15, 10, -10 ], axis = shouldersZ } ]
+        , torso =
+            [ { steps = [ -5, 5 ], axis = hips } ]
+        , leftArm =
+            [ { steps = [ 10, -10 ], axis = Axis3d.z }
+            , { steps = [ -15, -15, 15 ], axis = Axis3d.x }
+            ]
+        , rightArm =
+            [ { steps = [ 10, -10 ], axis = Axis3d.z }
+            , { steps = [ -15, -15, 15 ], axis = Axis3d.x }
+            ]
+        , leftLeg =
+            [ { steps = [ 5, -5 ], axis = feet } ]
+        , rightLeg =
+            [ { steps = [ 5, -5 ], axis = feet } ]
+        }
 
 
-macarena : Dance
+macarena : Sync
 macarena =
     let
         shake vigor =
@@ -396,73 +387,74 @@ macarena =
                     , [ 0, 0, 0, 0, 1, -1, 1, -1 ]
                     ]
     in
-    { head =
-        [ { steps = shake 5, axis = shouldersZ } ]
-    , torso =
-        [ { steps = shake 10, axis = hips } ]
-    , leftArm =
-        [ { steps =
-                List.concat
-                    [ [ 0, 0, 0, 0, -5, 0, 0, 0 ]
-                    , [ -15, -15, -15, -15, 30, 30, 30, 30 ]
-                    , [ 0, 0, 0, 0, 30, 30, 30, 30 ]
-                    , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
-                    ]
-          , axis = shouldersZ
-          }
-        , { steps =
-                List.concat
-                    [ [ 0, 0, 0, 0, -90, -90, -90, -90 ]
-                    , [ -95, -90, -90, -90, -105, -105, -105, -105 ]
-                    , [ -150, -150, -150, -150, -60, -60, -60, -60 ]
-                    , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
-                    ]
-          , axis = shouldersX
-          }
-        , { steps =
-                List.concat
-                    [ [ 0, 0, 0, 0, 0, 0, 0, 0 ]
-                    , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
-                    , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
-                    , [ 10, 10, 10, 10, 10, -10, 10, -10 ]
-                    ]
-          , axis = hips
-          }
-        ]
-    , rightArm =
-        [ { steps =
-                List.concat
-                    [ [ 0, 0, 0, 0, 0, 0, 5, 0, 0, 0 ]
-                    , [ 15, 15, 15, 15, -30, -30, -30, -30 ]
-                    , [ 0, 0, 0, 0, -30, -30, -30, -30 ]
-                    , [ 0, 0, 0, 0, 0, 0 ]
-                    ]
-          , axis = shouldersZ
-          }
-        , { steps =
-                List.concat
-                    [ [ 0, 0, 0, 0, 0, 0, -90, -90, -90, -90 ]
-                    , [ -95, -90, -90, -90, -105, -105, -105, -105 ]
-                    , [ -150, -150, -150, -150, -60, -60, -60, -60 ]
-                    , [ 0, 0, 0, 0, 0, 0 ]
-                    ]
-          , axis = shouldersX
-          }
-        , { steps =
-                List.concat
-                    [ [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ]
-                    , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
-                    , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
-                    , [ -10, -10, -10, -10, 10, -10 ]
-                    ]
-          , axis = hips
-          }
-        ]
-    , leftLeg =
-        [ { steps = shake -5, axis = feet } ]
-    , rightLeg =
-        [ { steps = shake -5, axis = feet } ]
-    }
+    Hardcoded 280
+        { head =
+            [ { steps = shake 5, axis = shouldersZ } ]
+        , torso =
+            [ { steps = shake 10, axis = hips } ]
+        , leftArm =
+            [ { steps =
+                    List.concat
+                        [ [ 0, 0, 0, 0, -5, 0, 0, 0 ]
+                        , [ -15, -15, -15, -15, 30, 30, 30, 30 ]
+                        , [ 0, 0, 0, 0, 30, 30, 30, 30 ]
+                        , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
+                        ]
+              , axis = shouldersZ
+              }
+            , { steps =
+                    List.concat
+                        [ [ 0, 0, 0, 0, -90, -90, -90, -90 ]
+                        , [ -95, -90, -90, -90, -105, -105, -105, -105 ]
+                        , [ -150, -150, -150, -150, -60, -60, -60, -60 ]
+                        , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
+                        ]
+              , axis = shouldersX
+              }
+            , { steps =
+                    List.concat
+                        [ [ 0, 0, 0, 0, 0, 0, 0, 0 ]
+                        , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
+                        , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
+                        , [ 10, 10, 10, 10, 10, -10, 10, -10 ]
+                        ]
+              , axis = hips
+              }
+            ]
+        , rightArm =
+            [ { steps =
+                    List.concat
+                        [ [ 0, 0, 0, 0, 0, 0, 5, 0, 0, 0 ]
+                        , [ 15, 15, 15, 15, -30, -30, -30, -30 ]
+                        , [ 0, 0, 0, 0, -30, -30, -30, -30 ]
+                        , [ 0, 0, 0, 0, 0, 0 ]
+                        ]
+              , axis = shouldersZ
+              }
+            , { steps =
+                    List.concat
+                        [ [ 0, 0, 0, 0, 0, 0, -90, -90, -90, -90 ]
+                        , [ -95, -90, -90, -90, -105, -105, -105, -105 ]
+                        , [ -150, -150, -150, -150, -60, -60, -60, -60 ]
+                        , [ 0, 0, 0, 0, 0, 0 ]
+                        ]
+              , axis = shouldersX
+              }
+            , { steps =
+                    List.concat
+                        [ [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ]
+                        , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
+                        , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
+                        , [ -10, -10, -10, -10, 10, -10 ]
+                        ]
+              , axis = hips
+              }
+            ]
+        , leftLeg =
+            [ { steps = shake -5, axis = feet } ]
+        , rightLeg =
+            [ { steps = shake -5, axis = feet } ]
+        }
 
 
 shouldersX : Axis3d Length.Meters c
@@ -499,10 +491,6 @@ joint dir y =
 
 -- CUBIC BEZIER
 -- from earlier experiments
-
-
-stepDuration =
-    280
 
 
 curve : Int -> Float -> List Float -> Float
