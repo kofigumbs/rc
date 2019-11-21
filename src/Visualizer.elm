@@ -48,7 +48,7 @@ type alias Model =
     , height : Float
     , sync : Sync
     , clock : Clock
-    , channels : Array ( Int, Float )
+    , channels : Array ( Int, Int, Float )
     }
 
 
@@ -84,7 +84,7 @@ init flags =
       , height = flags.height
       , sync = floss
       , clock = Clock 0 0 (Array.repeat 8 0.0)
-      , channels = Array.repeat 8 ( 0, 0 )
+      , channels = Array.repeat 8 ( 0, 0, 0 )
       }
     , Cmd.none
     )
@@ -118,10 +118,39 @@ update msg model =
                     pure (applyMidi data model)
 
 
+pure : a -> ( a, Cmd msg )
+pure a =
+    ( a, Cmd.none )
+
+
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    Sub.batch
+        [ midiMessage GotMidiMessage
+        , Browser.Events.onAnimationFrameDelta Diff
+        , Browser.Events.onResize Resize
+        ]
+
+
+
+-- MIDI STUFF
+
+
+channelMap : Body ( Int, Axis3d Length.Meters c )
+channelMap =
+    { head = ( 0, shouldersZ )
+    , torso = ( 1, hips )
+    , leftArm = ( 5, shouldersZ )
+    , rightArm = ( 7, shouldersZ )
+    , leftLeg = ( 2, feet )
+    , rightLeg = ( 3, feet )
+    }
+
+
 applyMidi : List Int -> Model -> Model
 applyMidi data model =
     case data of
-        [ 248 ] ->
+        240 :: _ ->
             let
                 clockHistory =
                     Array.set model.clock.index model.time model.clock.history
@@ -139,19 +168,18 @@ applyMidi data model =
             }
 
         [ status, note, velocity ] ->
-            let
-                command =
-                    Bitwise.shiftRightBy 4 status
+            if Bitwise.shiftRightBy 4 status /= 8 then
+                model
+            else
+                let
+                    channel =
+                        Bitwise.and 0x07 status
 
-                channel =
-                    Bitwise.and 0x07 status
-            in
-            case ( command, Array.get channel model.channels ) of
-                ( 8, Just ( old, _ ) ) ->
-                    { model | channels = Array.set channel ( old + 1, model.time ) model.channels }
-
-                _ ->
-                    model
+                    ( _, old, _ ) =
+                        Array.get channel model.channels
+                            |> Maybe.withDefault ( 0, 0, 0 )
+                in
+                { model | channels = Array.set channel ( old, (modBy 12 note - 6) * 10, model.time ) model.channels }
 
         _ ->
             model
@@ -167,21 +195,11 @@ sumDiffs acc list =
             acc
 
 
-pure : a -> ( a, Cmd msg )
-pure a =
-    ( a, Cmd.none )
-
-
 port midiMessage : (List Int -> msg) -> Sub msg
 
 
-subscriptions : Model -> Sub Msg
-subscriptions model =
-    Sub.batch
-        [ midiMessage GotMidiMessage
-        , Browser.Events.onAnimationFrameDelta Diff
-        , Browser.Events.onResize Resize
-        ]
+
+-- RENDER
 
 
 view : Model -> Html Msg
@@ -257,7 +275,7 @@ viewSubject model =
                 , zenithLuminance = Luminance.nits 5000
                 }
     in
-    Scene3d.render [ Scene3d.clearColor (Color.rgb255 72 72 72) ]
+    Scene3d.render [ Scene3d.clearColor Color.darkPurple ]
         { camera = camera
         , width = Pixels.pixels model.width
         , height = Pixels.pixels model.height
@@ -266,15 +284,15 @@ viewSubject model =
         , exposure = Exposure.fromMaxLuminance (Luminance.nits 10000)
         , whiteBalance = Chromaticity.daylight
         }
-        [ dance model head .head
-        , dance model torso .torso
-        , dance model arm .leftArm
+        [ dance model head Head
+        , dance model torso Torso
+        , dance model arm LeftArm
             |> Drawable.translateIn Direction3d.negativeX armOffset
-        , dance model arm .rightArm
+        , dance model arm RightArm
             |> Drawable.translateIn Direction3d.x armOffset
-        , dance model leg .leftLeg
+        , dance model leg LeftLeg
             |> Drawable.translateIn Direction3d.negativeX legOffset
-        , dance model leg .rightLeg
+        , dance model leg RightLeg
             |> Drawable.translateIn Direction3d.x legOffset
         ]
 
@@ -366,8 +384,39 @@ type Sync
     | Midi
 
 
-dance : Model -> Drawable () -> (Body (List Move) -> List Move) -> Drawable ()
-dance model initial getter =
+type Part
+    = Head
+    | Torso
+    | LeftArm
+    | RightArm
+    | LeftLeg
+    | RightLeg
+
+
+part : Part -> Body a -> a
+part part_ body =
+    case part_ of
+        Head ->
+            body.head
+
+        Torso ->
+            body.torso
+
+        LeftArm ->
+            body.leftArm
+
+        RightArm ->
+            body.rightArm
+
+        LeftLeg ->
+            body.leftLeg
+
+        RightLeg ->
+            body.rightLeg
+
+
+dance : Model -> Drawable () -> Part -> Drawable ()
+dance model drawable part_ =
     case model.sync of
         Hardcoded stepDuration dance_ ->
             let
@@ -382,18 +431,23 @@ dance model initial getter =
                         |> Angle.degrees
                         |> Drawable.rotateAround move.axis
             in
-            List.foldl apply initial (getter dance_)
+            List.foldl apply drawable (part part_ dance_)
 
         Midi ->
-            -- TODO
-            -- let
-            --   ( step, start ) =
-            --     Array.get channel model.channels
-            --       |> Maybe.withDefault ( 0, 0 )
-            -- in
-            -- curve step (min 1 ((model.time - start) / stepDuration)) steps
-            --
-            initial
+            let
+                ( channel, axis ) =
+                    part part_ channelMap
+
+                ( prev, next, start ) =
+                    Array.get channel model.channels
+                        |> Maybe.withDefault ( 0, 0, 0 )
+
+                f =
+                    curve 0 (min 1 ((model.time - start) / model.clock.value)) [ toFloat prev, toFloat next ]
+                        |> Angle.degrees
+                        |> Drawable.rotateAround axis
+            in
+            f drawable
 
 
 type alias Move =
