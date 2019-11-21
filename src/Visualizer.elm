@@ -47,10 +47,22 @@ type alias Model =
     , width : Float
     , height : Float
     , sync : Sync
+    , clock : Clock
     , channels : Array ( Int, Float )
     }
 
 
+type alias Clock =
+    { value : Float
+    , index : Int
+    , history : Array Float
+    }
+
+
+{-| TODO
+Use this to store next and prev explicitly in Model
+and allow smooth transitions between dances
+-}
 type alias Body a =
     { head : a
     , torso : a
@@ -71,6 +83,7 @@ init flags =
       , width = flags.width
       , height = flags.height
       , sync = floss
+      , clock = Clock 0 0 (Array.repeat 8 0.0)
       , channels = Array.repeat 8 ( 0, 0 )
       }
     , Cmd.none
@@ -97,25 +110,61 @@ update msg model =
             pure { model | sync = sync_ }
 
         GotMidiMessage data ->
-            case ( model.sync, data ) of
-                ( Midi, [ status, note, velocity ] ) ->
-                    let
-                        command =
-                            Bitwise.shiftRightBy 4 status
+            case model.sync of
+                Hardcoded _ _ ->
+                    pure model
 
-                        channel =
-                            Bitwise.and 0x07 status
-                    in
-                    case ( command, Array.get channel model.channels ) of
-                        -- TODO command 248, midi clock
-                        ( 8, Just ( old, _ ) ) ->
-                            pure { model | channels = Array.set channel ( old + 1, model.time ) model.channels }
+                Midi ->
+                    pure (applyMidi data model)
 
-                        _ ->
-                            pure model
+
+applyMidi : List Int -> Model -> Model
+applyMidi data model =
+    case data of
+        [ 248 ] ->
+            let
+                clockHistory =
+                    Array.set model.clock.index model.time model.clock.history
+            in
+            { model
+                | clock =
+                    { history =
+                        clockHistory
+                    , index =
+                        model.clock.index + 1
+                    , value =
+                        sumDiffs 0 (Array.toList clockHistory)
+                            / toFloat (Array.length clockHistory - 1)
+                    }
+            }
+
+        [ status, note, velocity ] ->
+            let
+                command =
+                    Bitwise.shiftRightBy 4 status
+
+                channel =
+                    Bitwise.and 0x07 status
+            in
+            case ( command, Array.get channel model.channels ) of
+                ( 8, Just ( old, _ ) ) ->
+                    { model | channels = Array.set channel ( old + 1, model.time ) model.channels }
 
                 _ ->
-                    pure model
+                    model
+
+        _ ->
+            model
+
+
+sumDiffs : Float -> List Float -> Float
+sumDiffs acc list =
+    case list of
+        a :: ((b :: _) as rest) ->
+            sumDiffs (acc + abs (b - a)) rest
+
+        _ ->
+            acc
 
 
 pure : a -> ( a, Cmd msg )
