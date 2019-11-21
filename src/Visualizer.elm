@@ -12,23 +12,21 @@ import Direction3d exposing (Direction3d)
 import Html exposing (Html)
 import Html.Attributes
 import Html.Events
-import Illuminance as Illuminance
+import Illuminance
 import Json.Decode as D
 import Length exposing (Length)
-import Luminance as Luminance
+import Luminance
 import Pixels
 import Point3d
 import Quantity
 import Scene3d
-import Scene3d.Chromaticity as Chromaticity
+import Scene3d.Chromaticity
 import Scene3d.Drawable as Drawable exposing (Drawable, Material)
-import Scene3d.Exposure as Exposure
-import Scene3d.Light as Light
+import Scene3d.Exposure
+import Scene3d.Light
 import Scene3d.Mesh as Mesh exposing (Mesh)
 import Scene3d.Shape as Shape
-import SketchPlane3d
 import Time
-import Triangle3d
 import Viewpoint3d
 
 
@@ -264,14 +262,14 @@ viewSubject model =
                 }
 
         sunlight =
-            Light.directional Chromaticity.daylight
+            Scene3d.Light.directional Scene3d.Chromaticity.daylight
                 (Illuminance.lux 10000)
                 (Direction3d.zxY (Angle.degrees 45) (Angle.degrees 195))
 
         ambientLighting =
-            Light.overcast
+            Scene3d.Light.overcast
                 { zenithDirection = Direction3d.z
-                , chromaticity = Chromaticity.daylight
+                , chromaticity = Scene3d.Chromaticity.daylight
                 , zenithLuminance = Luminance.nits 5000
                 }
     in
@@ -281,8 +279,8 @@ viewSubject model =
         , height = Pixels.pixels model.height
         , ambientLighting = Just ambientLighting
         , lights = Scene3d.oneLight sunlight { castsShadows = False }
-        , exposure = Exposure.fromMaxLuminance (Luminance.nits 10000)
-        , whiteBalance = Chromaticity.daylight
+        , exposure = Scene3d.Exposure.fromMaxLuminance (Luminance.nits 10000)
+        , whiteBalance = Scene3d.Chromaticity.daylight
         }
         [ dance model head Head
         , dance model torso Torso
