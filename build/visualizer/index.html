@@ -36,20 +36,11 @@
     flags: { height: window.innerHeight, width: window.innerWidth }
   });
 
-  navigator.requestMIDIAccess({ sysex: true }).then(function(access) {
+  navigator.requestMIDIAccess().then(function(access) {
     for(var input of access.inputs.values()) {
       input.onmidimessage = function(event) {
         app.ports.midiMessage.send(Array.from(event.data));
       };
-    }
-
-    for(var output of access.outputs.values()) {
-      setInterval(function() {
-        output.send([
-          // SECRET OP-Z HEARTBEAT?
-          0xF0, 0x00, 0x20, 0x76, 0x01, 0x00, 0x03, 0x3B, 0x72, 0x06, 0xF7,
-        ]);
-      }, 1000);
     }
   });
 </script>

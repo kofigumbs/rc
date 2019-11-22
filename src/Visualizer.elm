@@ -7,7 +7,7 @@ import Bitwise
 import Browser
 import Browser.Events
 import Camera3d
-import Color exposing (Color)
+import Color
 import Direction3d exposing (Direction3d)
 import Html exposing (Html)
 import Html.Attributes
@@ -51,7 +51,7 @@ type alias Model =
 
 
 type alias Clock =
-    { value : Float
+    { diffPerBeat : Float
     , index : Int
     , history : Array Float
     }
@@ -81,7 +81,7 @@ init flags =
       , width = flags.width
       , height = flags.height
       , sync = floss
-      , clock = Clock 0 0 (Array.repeat 8 0.0)
+      , clock = Clock 0 0 (Array.repeat 24 0.0)
       , channels = Array.repeat 8 ( 0, 0, 0 )
       }
     , Cmd.none
@@ -147,8 +147,24 @@ channelMap =
 
 applyMidi : List Int -> Model -> Model
 applyMidi data model =
-    case data of
-        240 :: _ ->
+    let
+        command =
+            List.head data
+                |> Maybe.map (Bitwise.shiftRightBy 4)
+    in
+    case ( command, data ) of
+        ( Just 8, [ status, note, velocity ] ) ->
+            let
+                channel =
+                    Bitwise.and 0x07 status
+
+                ( _, old, _ ) =
+                    Array.get channel model.channels
+                        |> Maybe.withDefault ( 0, 0, 0 )
+            in
+            { model | channels = Array.set channel ( old, (modBy 12 note - 6) * 10, model.time ) model.channels }
+
+        ( _, [ 248 ] ) ->
             let
                 clockHistory =
                     Array.set model.clock.index model.time model.clock.history
@@ -158,26 +174,13 @@ applyMidi data model =
                     { history =
                         clockHistory
                     , index =
-                        model.clock.index + 1
-                    , value =
+                        modBy (Array.length clockHistory) (model.clock.index + 1)
+                    , diffPerBeat =
                         sumDiffs 0 (Array.toList clockHistory)
+                            * 6
                             / toFloat (Array.length clockHistory - 1)
                     }
             }
-
-        [ status, note, velocity ] ->
-            if Bitwise.shiftRightBy 4 status /= 8 then
-                model
-            else
-                let
-                    channel =
-                        Bitwise.and 0x07 status
-
-                    ( _, old, _ ) =
-                        Array.get channel model.channels
-                            |> Maybe.withDefault ( 0, 0, 0 )
-                in
-                { model | channels = Array.set channel ( old, (modBy 12 note - 6) * 10, model.time ) model.channels }
 
         _ ->
             model
@@ -441,7 +444,7 @@ dance model drawable part_ =
                         |> Maybe.withDefault ( 0, 0, 0 )
 
                 f =
-                    curve 0 (min 1 ((model.time - start) / model.clock.value)) [ toFloat prev, toFloat next ]
+                    curve 0 (min 1 ((model.time - start) / model.clock.diffPerBeat)) [ toFloat prev, toFloat next ]
                         |> Angle.degrees
                         |> Drawable.rotateAround axis
             in
@@ -612,10 +615,10 @@ cubicBezier : Float -> Float -> Float -> Float
 cubicBezier t p0 p3 =
     let
         controlPoint1 =
-            1.05
+            0.85
 
         controlPoint2 =
-            0.75
+            1.15
 
         p1 =
             p0 + controlPoint1 * (p3 - p0)
