@@ -44,7 +44,10 @@ type alias Model =
     { time : Float
     , width : Float
     , height : Float
-    , sync : Sync
+    , code : String
+    , prev : Body Move
+    , next : Body Move
+    , plan : List (Body Move)
     , clock : Clock
     , channels : Array ( Int, Int, Float )
     }
@@ -57,10 +60,6 @@ type alias Clock =
     }
 
 
-{-| TODO
-Use this to store next and prev explicitly in Model
-and allow smooth transitions between dances
--}
 type alias Body a =
     { head : a
     , torso : a
@@ -71,16 +70,33 @@ type alias Body a =
     }
 
 
+type Move
+    = Vertical Float
+
+
 type alias Flags =
     { width : Float, height : Float }
 
 
 init : Flags -> ( Model, Cmd Msg )
 init flags =
+    let
+        code =
+            String.join "\n"
+                [ "rightarm up    leftarm down"
+                , "rightarm down  leftarm up"
+                ]
+
+        ( prev, next, plan ) =
+            parseDance code
+    in
     ( { time = 0
       , width = flags.width
       , height = flags.height
-      , sync = floss
+      , code = code
+      , prev = prev
+      , next = next
+      , plan = plan
       , clock = Clock 0 0 (Array.repeat 24 0.0)
       , channels = Array.repeat 8 ( 0, 0, 0 )
       }
@@ -88,10 +104,55 @@ init flags =
     )
 
 
+parseDance : String -> ( Body Move, Body Move, List (Body Move) )
+parseDance code =
+    let
+        parse body line =
+            case line of
+                "leftarm" :: "up" :: rest ->
+                    parse { body | leftArm = Vertical 0.15 } rest
+
+                "leftarm" :: "down" :: rest ->
+                    parse { body | leftArm = Vertical -0.15 } rest
+
+                "rightarm" :: "up" :: rest ->
+                    parse { body | rightArm = Vertical 0.15 } rest
+
+                "rightarm" :: "down" :: rest ->
+                    parse { body | rightArm = Vertical -0.15 } rest
+
+                _ ->
+                    body
+    in
+    case
+        String.lines code
+            |> List.map
+                (String.split " "
+                    >> List.filter (String.isEmpty >> not)
+                    >> parse neutral
+                )
+    of
+        (first :: second :: _) as all ->
+            ( first, second, all )
+
+        _ ->
+            ( neutral, neutral, [] )
+
+
+neutral : Body Move
+neutral =
+    { head = Vertical 0
+    , torso = Vertical 0
+    , leftArm = Vertical 0
+    , rightArm = Vertical 0
+    , leftLeg = Vertical 0
+    , rightLeg = Vertical 0
+    }
+
+
 type Msg
     = Diff Float
     | Resize Int Int
-    | SetSync Sync
     | GotMidiMessage (List Int)
 
 
@@ -99,21 +160,29 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         Diff diff ->
-            pure { model | time = model.time + diff }
+            let
+                newTime =
+                    model.time + diff
+            in
+            if newTime <= stepDuration then
+                pure { model | time = newTime }
+            else
+                let
+                    ( next, plan ) =
+                        case model.plan of
+                            [] ->
+                                ( model.next, model.plan )
+
+                            first :: rest ->
+                                ( first, rest ++ [ first ] )
+                in
+                pure { model | time = newTime - stepDuration, prev = model.next, next = next, plan = plan }
 
         Resize width height ->
             pure { model | width = toFloat width, height = toFloat height }
 
-        SetSync sync_ ->
-            pure { model | sync = sync_ }
-
         GotMidiMessage data ->
-            case model.sync of
-                Hardcoded _ _ ->
-                    pure model
-
-                Midi ->
-                    pure (applyMidi data model)
+            pure (applyMidi data model)
 
 
 pure : a -> ( a, Cmd msg )
@@ -132,17 +201,6 @@ subscriptions model =
 
 
 -- MIDI STUFF
-
-
-channelMap : Body ( Int, Axis3d Length.Meters c )
-channelMap =
-    { head = ( 0, shouldersZ )
-    , torso = ( 1, hips )
-    , leftArm = ( 5, shouldersZ )
-    , rightArm = ( 7, shouldersZ )
-    , leftLeg = ( 2, feet )
-    , rightLeg = ( 3, feet )
-    }
 
 
 applyMidi : List Int -> Model -> Model
@@ -205,46 +263,14 @@ port midiMessage : (List Int -> msg) -> Sub msg
 
 view : Model -> Html Msg
 view model =
-    Html.div [ Html.Attributes.style "position" "relative" ]
+    Html.main_ []
         [ viewSubject model
-        , Html.div [ Html.Attributes.class "controls" ] <|
-            radio SetSync model.sync <|
-                [ ( floss, Html.text "floss" )
-                , ( macarena, Html.text "macarena" )
-                , ( Midi, Html.b [] [ Html.text "midi" ] )
-                ]
+        , Html.textarea
+            [ Html.Attributes.autofocus True
+            , Html.Attributes.style "width" (String.fromInt (floor model.width // 2) ++ "px")
+            ]
+            [ Html.text model.code ]
         ]
-
-
-radio : (a -> msg) -> a -> List ( a, Html msg ) -> List (Html msg)
-radio toMsg value =
-    List.indexedMap <|
-        \index ( thisValue, thisLabel ) ->
-            Html.label []
-                [ Html.input
-                    [ Html.Attributes.name "radio"
-                    , Html.Attributes.type_ "radio"
-                    , Html.Attributes.value (String.fromInt index)
-                    , Html.Attributes.checked (thisValue == value)
-                    , onChange (String.fromInt index) (toMsg thisValue)
-                    ]
-                    []
-                , Html.text " "
-                , thisLabel
-                ]
-
-
-onChange : String -> msg -> Html.Attribute msg
-onChange this msg =
-    Html.Events.on "change" <|
-        D.andThen
-            (\x ->
-                if x == this then
-                    D.succeed msg
-                else
-                    D.fail ""
-            )
-            Html.Events.targetValue
 
 
 viewSubject : Model -> Html msg
@@ -278,7 +304,7 @@ viewSubject model =
     in
     Scene3d.render [ Scene3d.clearColor Color.darkPurple ]
         { camera = camera
-        , width = Pixels.pixels model.width
+        , width = Pixels.pixels (model.width / 2)
         , height = Pixels.pixels model.height
         , ambientLighting = Just ambientLighting
         , lights = Scene3d.oneLight sunlight { castsShadows = False }
@@ -377,12 +403,7 @@ var =
 
 
 
--- SYNC + DANCE
-
-
-type Sync
-    = Hardcoded Float (Body (List Move))
-    | Midi
+-- DANCE
 
 
 type Part
@@ -418,197 +439,22 @@ part part_ body =
 
 dance : Model -> Drawable () -> Part -> Drawable ()
 dance model drawable part_ =
-    case model.sync of
-        Hardcoded stepDuration dance_ ->
-            let
-                progress =
-                    model.time / stepDuration
-
-                start =
-                    floor progress
-
-                apply move =
-                    curve start (progress - toFloat start) move.steps
-                        |> Angle.degrees
-                        |> Drawable.rotateAround move.axis
-            in
-            List.foldl apply drawable (part part_ dance_)
-
-        Midi ->
-            let
-                ( channel, axis ) =
-                    part part_ channelMap
-
-                ( prev, next, start ) =
-                    Array.get channel model.channels
-                        |> Maybe.withDefault ( 0, 0, 0 )
-
-                f =
-                    curve 0 (min 1 ((model.time - start) / model.clock.diffPerBeat)) [ toFloat prev, toFloat next ]
-                        |> Angle.degrees
-                        |> Drawable.rotateAround axis
-            in
-            f drawable
-
-
-type alias Move =
-    { steps : List Float
-    , axis : Axis3d Length.Meters ()
-    }
-
-
-floss : Sync
-floss =
-    Hardcoded 350
-        { head =
-            [ { steps = [ 15, -10, 10, -15, 10, -10 ], axis = shouldersZ } ]
-        , torso =
-            [ { steps = [ -5, 5 ], axis = hips } ]
-        , leftArm =
-            [ { steps = [ 10, -10 ], axis = Axis3d.z }
-            , { steps = [ -15, -15, 15 ], axis = Axis3d.x }
-            ]
-        , rightArm =
-            [ { steps = [ 10, -10 ], axis = Axis3d.z }
-            , { steps = [ -15, -15, 15 ], axis = Axis3d.x }
-            ]
-        , leftLeg =
-            [ { steps = [ 5, -5 ], axis = feet } ]
-        , rightLeg =
-            [ { steps = [ 5, -5 ], axis = feet } ]
-        }
-
-
-macarena : Sync
-macarena =
     let
-        shake vigor =
-            List.map ((*) vigor) <|
-                List.concat
-                    [ [ 0, 0, 0, 0, 0, 0, 0, 0 ]
-                    , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
-                    , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
-                    , [ 0, 0, 0, 0, 1, -1, 1, -1 ]
-                    ]
+        (Vertical a) =
+            part part_ model.prev
+
+        (Vertical b) =
+            part part_ model.next
+
+        distance =
+            Length.meters (cubicBezier (model.time / stepDuration) a b)
     in
-    Hardcoded 280
-        { head =
-            [ { steps = shake 5, axis = shouldersZ } ]
-        , torso =
-            [ { steps = shake 10, axis = hips } ]
-        , leftArm =
-            [ { steps =
-                    List.concat
-                        [ [ 0, 0, 0, 0, -5, 0, 0, 0 ]
-                        , [ -15, -15, -15, -15, 30, 30, 30, 30 ]
-                        , [ 0, 0, 0, 0, 30, 30, 30, 30 ]
-                        , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
-                        ]
-              , axis = shouldersZ
-              }
-            , { steps =
-                    List.concat
-                        [ [ 0, 0, 0, 0, -90, -90, -90, -90 ]
-                        , [ -95, -90, -90, -90, -105, -105, -105, -105 ]
-                        , [ -150, -150, -150, -150, -60, -60, -60, -60 ]
-                        , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
-                        ]
-              , axis = shouldersX
-              }
-            , { steps =
-                    List.concat
-                        [ [ 0, 0, 0, 0, 0, 0, 0, 0 ]
-                        , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
-                        , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
-                        , [ 10, 10, 10, 10, 10, -10, 10, -10 ]
-                        ]
-              , axis = hips
-              }
-            ]
-        , rightArm =
-            [ { steps =
-                    List.concat
-                        [ [ 0, 0, 0, 0, 0, 0, 5, 0, 0, 0 ]
-                        , [ 15, 15, 15, 15, -30, -30, -30, -30 ]
-                        , [ 0, 0, 0, 0, -30, -30, -30, -30 ]
-                        , [ 0, 0, 0, 0, 0, 0 ]
-                        ]
-              , axis = shouldersZ
-              }
-            , { steps =
-                    List.concat
-                        [ [ 0, 0, 0, 0, 0, 0, -90, -90, -90, -90 ]
-                        , [ -95, -90, -90, -90, -105, -105, -105, -105 ]
-                        , [ -150, -150, -150, -150, -60, -60, -60, -60 ]
-                        , [ 0, 0, 0, 0, 0, 0 ]
-                        ]
-              , axis = shouldersX
-              }
-            , { steps =
-                    List.concat
-                        [ [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ]
-                        , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
-                        , [ 0, 0, 0, 0, 0, 0, 0, 0 ]
-                        , [ -10, -10, -10, -10, 10, -10 ]
-                        ]
-              , axis = hips
-              }
-            ]
-        , leftLeg =
-            [ { steps = shake -5, axis = feet } ]
-        , rightLeg =
-            [ { steps = shake -5, axis = feet } ]
-        }
+    Drawable.translateIn Direction3d.y distance drawable
 
 
-shouldersX : Axis3d Length.Meters c
-shouldersX =
-    shoulders Direction3d.x
-
-
-shouldersZ : Axis3d Length.Meters c
-shouldersZ =
-    shoulders Direction3d.z
-
-
-shoulders : Direction3d c -> Axis3d Length.Meters c
-shoulders direction =
-    joint direction <| Quantity.plus var.headRadius var.spacing
-
-
-hips : Axis3d Length.Meters c
-hips =
-    joint Direction3d.z <| Quantity.sum [ var.headRadius, var.spacing, var.torsoLength ]
-
-
-feet : Axis3d Length.Meters c
-feet =
-    joint Direction3d.z <| Quantity.sum [ var.headRadius, var.spacing, var.torsoLength, var.spacing, var.legLength ]
-
-
-joint : Direction3d c -> Length -> Axis3d Length.Meters c
-joint dir y =
-    Axis3d.withDirection dir <|
-        Point3d.xyz Quantity.zero (Quantity.negate y) Quantity.zero
-
-
-
--- CUBIC BEZIER
--- from earlier experiments
-
-
-curve : Int -> Float -> List Float -> Float
-curve completed t steps =
-    case
-        List.drop
-            (modBy (List.length steps) completed)
-            (steps ++ List.take 1 steps)
-    of
-        first :: second :: _ ->
-            cubicBezier t first second
-
-        _ ->
-            0
+stepDuration : Float
+stepDuration =
+    350
 
 
 cubicBezier : Float -> Float -> Float -> Float
