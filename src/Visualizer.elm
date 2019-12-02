@@ -16,6 +16,7 @@ import Illuminance
 import Json.Decode as D
 import Length exposing (Length)
 import Luminance
+import Parser as P exposing ((|.), (|=))
 import Pixels
 import Point3d
 import Quantity
@@ -42,12 +43,13 @@ main =
 
 type alias Model =
     { time : Float
+    , tick : Int
     , width : Float
     , height : Float
     , code : String
+    , plan : Array (Body Move)
     , prev : Body Move
     , next : Body Move
-    , plan : List (Body Move)
     , clock : Clock
     , channels : Array ( Int, Int, Float )
     }
@@ -84,20 +86,22 @@ init flags =
     let
         code =
             String.join "\n"
-                [ "rightarm up    leftarm down"
-                , "rightarm down  leftarm up"
+                [ "rightArm up    leftArm down"
+                , "rightArm down  leftArm up"
                 ]
 
-        ( prev, next, plan ) =
-            parseDance code
+        plan =
+            P.run codeParser code
+                |> Result.withDefault Array.empty
     in
     ( { time = 0
+      , tick = 0
       , width = flags.width
       , height = flags.height
       , code = code
-      , prev = prev
-      , next = next
       , plan = plan
+      , prev = Array.get 0 plan |> Maybe.withDefault neutral
+      , next = Array.get 1 plan |> Maybe.withDefault neutral
       , clock = Clock 0 0 (Array.repeat 24 0.0)
       , channels = Array.repeat 8 ( 0, 0, 0 )
       }
@@ -105,45 +109,54 @@ init flags =
     )
 
 
-parseDance : String -> ( Body Move, Body Move, List (Body Move) )
-parseDance code =
-    let
-        parse body line =
-            case line of
-                "leftarm" :: "up" :: rest ->
-                    parse { body | leftArm = Vertical 0.15 } rest
+codeParser : P.Parser (Array (Body Move))
+codeParser =
+    P.loop ( Array.empty, neutral ) lineParser
 
-                "leftarm" :: "down" :: rest ->
-                    parse { body | leftArm = Vertical -0.15 } rest
 
-                "rightarm" :: "up" :: rest ->
-                    parse { body | rightArm = Vertical 0.15 } rest
+lineParser :
+    ( Array (Body Move), Body Move )
+    -> P.Parser (P.Step ( Array (Body Move), Body Move ) (Array (Body Move)))
+lineParser ( moves, current ) =
+    P.succeed identity
+        |. P.chompWhile isSpace
+        |= P.oneOf
+            [ partParser "head" (\x -> P.Loop ( moves, { current | head = x } ))
+            , partParser "torso" (\x -> P.Loop ( moves, { current | torso = x } ))
+            , partParser "leftArm" (\x -> P.Loop ( moves, { current | leftArm = x } ))
+            , partParser "rightArm" (\x -> P.Loop ( moves, { current | rightArm = x } ))
+            , partParser "leftLeg" (\x -> P.Loop ( moves, { current | leftLeg = x } ))
+            , partParser "rightLeg" (\x -> P.Loop ( moves, { current | rightLeg = x } ))
+            , P.succeed (P.Loop ( Array.push current moves, neutral )) |. P.chompIf isNewline
+            , P.succeed (P.Done (Array.push current moves)) |. P.end
+            ]
 
-                "rightarm" :: "down" :: rest ->
-                    parse { body | rightArm = Vertical -0.15 } rest
 
-                "head" :: "left" :: rest ->
-                    parse { body | head = Horizontal -0.15 } rest
+partParser : String -> (Move -> x) -> P.Parser x
+partParser name f =
+    P.succeed f |. P.keyword name |= moveParser
 
-                "head" :: "right" :: rest ->
-                    parse { body | head = Horizontal 0.15 } rest
 
-                _ ->
-                    body
-    in
-    case
-        String.lines code
-            |> List.map
-                (String.split " "
-                    >> List.filter (String.isEmpty >> not)
-                    >> parse neutral
-                )
-    of
-        (first :: second :: _) as all ->
-            ( first, second, all )
+moveParser : P.Parser Move
+moveParser =
+    P.succeed identity
+        |. P.chompWhile isSpace
+        |= P.oneOf
+            [ P.succeed (Vertical 0.15) |. P.keyword "up"
+            , P.succeed (Vertical -0.15) |. P.keyword "down"
+            , P.succeed (Horizontal -0.15) |. P.keyword "left"
+            , P.succeed (Horizontal 0.15) |. P.keyword "right"
+            ]
 
-        _ ->
-            ( neutral, neutral, [] )
+
+isSpace : Char -> Bool
+isSpace char =
+    char == ' '
+
+
+isNewline : Char -> Bool
+isNewline char =
+    char == '\n'
 
 
 neutral : Body Move
@@ -171,30 +184,33 @@ update msg model =
             let
                 newTime =
                     model.time + diff
+
+                newTick =
+                    model.tick + 1
             in
             if newTime <= stepDuration then
                 pure { model | time = newTime }
             else
-                let
-                    ( next, plan ) =
-                        case model.plan of
-                            [] ->
-                                ( model.next, model.plan )
-
-                            first :: rest ->
-                                ( first, rest ++ [ first ] )
-                in
-                pure { model | time = newTime - stepDuration, prev = model.next, next = next, plan = plan }
+                pure
+                    { model
+                        | time = newTime - stepDuration
+                        , tick = newTick
+                        , prev = model.next
+                        , next =
+                            Array.get (modBy (Array.length model.plan) newTick) model.plan
+                                |> Maybe.withDefault model.prev
+                    }
 
         Resize width height ->
             pure { model | width = toFloat width, height = toFloat height }
 
         SetCode code ->
-            let
-                ( _, _, plan ) =
-                    parseDance code
-            in
-            pure { model | code = code, plan = plan }
+            case P.run codeParser code of
+                Err _ ->
+                    pure model
+
+                Ok plan ->
+                    pure { model | code = code, plan = plan }
 
         GotMidiMessage data ->
             pure (applyMidi data model)
@@ -327,15 +343,15 @@ viewSubject model =
         , exposure = Scene3d.Exposure.fromMaxLuminance (Luminance.nits 10000)
         , whiteBalance = Scene3d.Chromaticity.daylight
         }
-        [ dance model head Head
-        , dance model torso Torso
-        , dance model arm LeftArm
+        [ dance model head .head
+        , dance model torso .torso
+        , dance model arm .leftArm
             |> Drawable.translateIn Direction3d.negativeX armOffset
-        , dance model arm RightArm
+        , dance model arm .rightArm
             |> Drawable.translateIn Direction3d.x armOffset
-        , dance model leg LeftLeg
+        , dance model leg .leftLeg
             |> Drawable.translateIn Direction3d.negativeX legOffset
-        , dance model leg RightLeg
+        , dance model leg .rightLeg
             |> Drawable.translateIn Direction3d.x legOffset
         ]
 
@@ -422,42 +438,11 @@ var =
 -- DANCE
 
 
-type Part
-    = Head
-    | Torso
-    | LeftArm
-    | RightArm
-    | LeftLeg
-    | RightLeg
-
-
-part : Part -> Body a -> a
-part part_ body =
-    case part_ of
-        Head ->
-            body.head
-
-        Torso ->
-            body.torso
-
-        LeftArm ->
-            body.leftArm
-
-        RightArm ->
-            body.rightArm
-
-        LeftLeg ->
-            body.leftLeg
-
-        RightLeg ->
-            body.rightLeg
-
-
-dance : Model -> Drawable () -> Part -> Drawable ()
-dance model drawable part_ =
+dance : Model -> Drawable () -> (Body Move -> Move) -> Drawable ()
+dance model drawable part =
     let
         ( verticalA, horizontalA ) =
-            case part part_ model.prev of
+            case part model.prev of
                 Vertical a ->
                     ( a, 0 )
 
@@ -465,7 +450,7 @@ dance model drawable part_ =
                     ( 0, a )
 
         ( verticalB, horizontalB ) =
-            case part part_ model.next of
+            case part model.next of
                 Vertical b ->
                     ( b, 0 )
 
