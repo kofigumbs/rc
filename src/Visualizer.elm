@@ -28,6 +28,7 @@ import Scene3d.Light
 import Scene3d.Mesh as Mesh exposing (Mesh)
 import Scene3d.Shape as Shape
 import Time
+import Vector3d exposing (Vector3d)
 import Viewpoint3d
 
 
@@ -47,9 +48,10 @@ type alias Model =
     , width : Float
     , height : Float
     , code : String
-    , plan : Array (Body Move)
-    , prev : Body Move
-    , next : Body Move
+    , error : Bool
+    , plan : Array Dance
+    , prev : Dance
+    , next : Dance
     , clock : Clock
     , channels : Array ( Int, Int, Float )
     }
@@ -62,19 +64,18 @@ type alias Clock =
     }
 
 
-type alias Body a =
-    { head : a
-    , torso : a
-    , leftArm : a
-    , rightArm : a
-    , leftLeg : a
-    , rightLeg : a
+type alias Dance =
+    { head : Move
+    , torso : Move
+    , leftArm : Move
+    , rightArm : Move
+    , leftLeg : Move
+    , rightLeg : Move
     }
 
 
-type Move
-    = Vertical Float
-    | Horizontal Float
+type alias Move =
+    Vector3d Length.Meters ()
 
 
 type alias Flags =
@@ -86,19 +87,28 @@ init flags =
     let
         code =
             String.join "\n"
-                [ "rightArm up    leftArm down"
-                , "rightArm down  leftArm up"
+                [ "leftArm down 0.15 left 0.15      rightArm up 2    head left 0.7     torso left 0.15"
+                , ""
+                , "leftArm down 0.15 left 0.15      rightArm up 2    head left 0.7     torso left 0.15"
+                , "rightArm down 0.15 right 0.15    leftArm up 2     head right 0.7    torso right 0.15"
+                , ""
+                , "rightArm down 0.15 right 0.15    leftArm up 2     head right 0.7    torso right 0.15"
                 ]
 
-        plan =
-            P.run codeParser code
-                |> Result.withDefault Array.empty
+        ( plan, error ) =
+            case P.run codeParser code of
+                Ok x ->
+                    ( x, False )
+
+                Err e ->
+                    ( Array.repeat 1 neutral, True )
     in
     ( { time = 0
-      , tick = 0
+      , tick = 1
       , width = flags.width
       , height = flags.height
       , code = code
+      , error = error
       , plan = plan
       , prev = Array.get 0 plan |> Maybe.withDefault neutral
       , next = Array.get 1 plan |> Maybe.withDefault neutral
@@ -109,65 +119,100 @@ init flags =
     )
 
 
-codeParser : P.Parser (Array (Body Move))
+codeParser : P.Parser (Array Dance)
 codeParser =
-    P.loop ( Array.empty, neutral ) lineParser
+    P.loop Array.empty lineParser
 
 
-lineParser :
-    ( Array (Body Move), Body Move )
-    -> P.Parser (P.Step ( Array (Body Move), Body Move ) (Array (Body Move)))
-lineParser ( moves, current ) =
-    P.succeed identity
-        |. P.chompWhile isSpace
+lineParser : Array Dance -> P.Parser (P.Step (Array Dance) (Array Dance))
+lineParser moves =
+    P.succeed (|>)
+        |. whitespace
+        |= P.loop neutral partParser
+        |. whitespace
         |= P.oneOf
-            [ partParser "head" (\x -> P.Loop ( moves, { current | head = x } ))
-            , partParser "torso" (\x -> P.Loop ( moves, { current | torso = x } ))
-            , partParser "leftArm" (\x -> P.Loop ( moves, { current | leftArm = x } ))
-            , partParser "rightArm" (\x -> P.Loop ( moves, { current | rightArm = x } ))
-            , partParser "leftLeg" (\x -> P.Loop ( moves, { current | leftLeg = x } ))
-            , partParser "rightLeg" (\x -> P.Loop ( moves, { current | rightLeg = x } ))
-            , P.succeed (P.Loop ( Array.push current moves, neutral )) |. P.chompIf isNewline
-            , P.succeed (P.Done (Array.push current moves)) |. P.end
+            [ P.succeed (\x -> P.Done (Array.push x moves)) |. P.end
+            , P.succeed (\x -> P.Loop (Array.push x moves)) |. newline
             ]
 
 
-partParser : String -> (Move -> x) -> P.Parser x
-partParser name f =
-    P.succeed f |. P.keyword name |= moveParser
+partParser : Dance -> P.Parser (P.Step Dance Dance)
+partParser old =
+    P.oneOf
+        [ partKeywordParser
+            |> P.andThen
+                (\setter ->
+                    P.succeed P.Loop
+                        |. whitespace
+                        |= P.loop ( old, setter ) moveParser
+                        |. whitespace
+                )
+        , P.succeed (P.Done old)
+        ]
 
 
-moveParser : P.Parser Move
-moveParser =
-    P.succeed identity
-        |. P.chompWhile isSpace
+partKeywordParser : P.Parser (Move -> Dance -> Dance)
+partKeywordParser =
+    P.oneOf
+        [ P.succeed (\x a -> { a | head = Vector3d.plus a.head x }) |. P.keyword "head"
+        , P.succeed (\x a -> { a | torso = Vector3d.plus a.torso x }) |. P.keyword "torso"
+        , P.succeed (\x a -> { a | leftArm = Vector3d.plus a.leftArm x }) |. P.keyword "leftArm"
+        , P.succeed (\x a -> { a | rightArm = Vector3d.plus a.rightArm x }) |. P.keyword "rightArm"
+        , P.succeed (\x a -> { a | leftLeg = Vector3d.plus a.leftLeg x }) |. P.keyword "leftLeg"
+        , P.succeed (\x a -> { a | rightLeg = Vector3d.plus a.rightLeg x }) |. P.keyword "rightLeg"
+        ]
+
+
+moveParser :
+    ( Dance, Move -> Dance -> Dance )
+    -> P.Parser (P.Step ( Dance, Move -> Dance -> Dance ) Dance)
+moveParser ( old, setter ) =
+    P.oneOf
+        [ P.succeed (|>)
+            |= moveKeywordParser
+            |= P.succeed (\x -> P.Loop ( setter x old, setter ))
+            |. whitespace
+        , P.succeed (P.Done old)
+        ]
+
+
+moveKeywordParser : P.Parser Move
+moveKeywordParser =
+    P.succeed vectorIn
         |= P.oneOf
-            [ P.succeed (Vertical 0.15) |. P.keyword "up"
-            , P.succeed (Vertical -0.15) |. P.keyword "down"
-            , P.succeed (Horizontal -0.15) |. P.keyword "left"
-            , P.succeed (Horizontal 0.15) |. P.keyword "right"
+            [ P.succeed Direction3d.y |. P.keyword "up"
+            , P.succeed Direction3d.negativeY |. P.keyword "down"
+            , P.succeed Direction3d.negativeX |. P.keyword "left"
+            , P.succeed Direction3d.x |. P.keyword "right"
             ]
+        |. whitespace
+        |= P.float
 
 
-isSpace : Char -> Bool
-isSpace char =
-    char == ' '
+newline : P.Parser ()
+newline =
+    P.chompIf (\x -> x == '\n')
 
 
-isNewline : Char -> Bool
-isNewline char =
-    char == '\n'
+whitespace : P.Parser ()
+whitespace =
+    P.chompWhile (\x -> x == ' ')
 
 
-neutral : Body Move
+neutral : Dance
 neutral =
-    { head = Vertical 0
-    , torso = Vertical 0
-    , leftArm = Vertical 0
-    , rightArm = Vertical 0
-    , leftLeg = Vertical 0
-    , rightLeg = Vertical 0
+    { head = Vector3d.zero
+    , torso = Vector3d.zero
+    , leftArm = Vector3d.zero
+    , rightArm = Vector3d.zero
+    , leftLeg = Vector3d.zero
+    , rightLeg = Vector3d.zero
     }
+
+
+vectorIn : Direction3d a -> Float -> Vector3d Length.Meters a
+vectorIn dir length =
+    Vector3d.withLength (Length.meters length) dir
 
 
 type Msg
@@ -207,10 +252,10 @@ update msg model =
         SetCode code ->
             case P.run codeParser code of
                 Err _ ->
-                    pure model
+                    pure { model | error = True }
 
                 Ok plan ->
-                    pure { model | code = code, plan = plan }
+                    pure { model | code = code, plan = plan, error = False }
 
         GotMidiMessage data ->
             pure (applyMidi data model)
@@ -300,6 +345,7 @@ view model =
             [ Html.Attributes.autofocus True
             , Html.Attributes.style "width" (String.fromInt (floor model.width // 2) ++ "px")
             , Html.Events.onInput SetCode
+            , Html.Attributes.classList [ ( "error", model.error ) ]
             ]
             [ Html.text model.code ]
         ]
@@ -438,31 +484,22 @@ var =
 -- DANCE
 
 
-dance : Model -> Drawable () -> (Body Move -> Move) -> Drawable ()
+dance : Model -> Drawable () -> (Dance -> Move) -> Drawable ()
 dance model drawable part =
     let
-        ( verticalA, horizontalA ) =
-            case part model.prev of
-                Vertical a ->
-                    ( a, 0 )
+        a =
+            Vector3d.unwrap (part model.prev)
 
-                Horizontal a ->
-                    ( 0, a )
+        b =
+            Vector3d.unwrap (part model.next)
 
-        ( verticalB, horizontalB ) =
-            case part model.next of
-                Vertical b ->
-                    ( b, 0 )
-
-                Horizontal b ->
-                    ( 0, b )
-
-        distance a b =
-            Length.meters (cubicBezier (model.time / stepDuration) a b)
+        distance start end =
+            Length.meters (cubicBezier (model.time / stepDuration) start end)
     in
     drawable
-        |> Drawable.translateIn Direction3d.y (distance verticalA verticalB)
-        |> Drawable.translateIn Direction3d.x (distance horizontalA horizontalB)
+        |> Drawable.translateIn Direction3d.x (distance a.x b.x)
+        |> Drawable.translateIn Direction3d.y (distance a.y b.y)
+        |> Drawable.translateIn Direction3d.z (distance a.z b.z)
 
 
 stepDuration : Float
