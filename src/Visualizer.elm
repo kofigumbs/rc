@@ -72,6 +72,7 @@ type alias Body a =
 
 type Move
     = Vertical Float
+    | Horizontal Float
 
 
 type alias Flags =
@@ -121,6 +122,12 @@ parseDance code =
                 "rightarm" :: "down" :: rest ->
                     parse { body | rightArm = Vertical -0.15 } rest
 
+                "head" :: "left" :: rest ->
+                    parse { body | head = Horizontal -0.15 } rest
+
+                "head" :: "right" :: rest ->
+                    parse { body | head = Horizontal 0.15 } rest
+
                 _ ->
                     body
     in
@@ -153,6 +160,7 @@ neutral =
 type Msg
     = Diff Float
     | Resize Int Int
+    | SetCode String
     | GotMidiMessage (List Int)
 
 
@@ -180,6 +188,13 @@ update msg model =
 
         Resize width height ->
             pure { model | width = toFloat width, height = toFloat height }
+
+        SetCode code ->
+            let
+                ( _, _, plan ) =
+                    parseDance code
+            in
+            pure { model | code = code, plan = plan }
 
         GotMidiMessage data ->
             pure (applyMidi data model)
@@ -268,6 +283,7 @@ view model =
         , Html.textarea
             [ Html.Attributes.autofocus True
             , Html.Attributes.style "width" (String.fromInt (floor model.width // 2) ++ "px")
+            , Html.Events.onInput SetCode
             ]
             [ Html.text model.code ]
         ]
@@ -440,16 +456,28 @@ part part_ body =
 dance : Model -> Drawable () -> Part -> Drawable ()
 dance model drawable part_ =
     let
-        (Vertical a) =
-            part part_ model.prev
+        ( verticalA, horizontalA ) =
+            case part part_ model.prev of
+                Vertical a ->
+                    ( a, 0 )
 
-        (Vertical b) =
-            part part_ model.next
+                Horizontal a ->
+                    ( 0, a )
 
-        distance =
+        ( verticalB, horizontalB ) =
+            case part part_ model.next of
+                Vertical b ->
+                    ( b, 0 )
+
+                Horizontal b ->
+                    ( 0, b )
+
+        distance a b =
             Length.meters (cubicBezier (model.time / stepDuration) a b)
     in
-    Drawable.translateIn Direction3d.y distance drawable
+    drawable
+        |> Drawable.translateIn Direction3d.y (distance verticalA verticalB)
+        |> Drawable.translateIn Direction3d.x (distance horizontalA horizontalB)
 
 
 stepDuration : Float
