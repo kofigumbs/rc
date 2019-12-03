@@ -3,6 +3,7 @@ port module Visualizer exposing (main)
 import Angle exposing (Angle)
 import Array exposing (Array)
 import Axis3d exposing (Axis3d)
+import Base64
 import Bitwise
 import Browser
 import Browser.Events
@@ -47,13 +48,18 @@ type alias Model =
     , tick : Int
     , width : Float
     , height : Float
-    , code : String
-    , error : Bool
-    , plan : Array Dance
-    , prev : Dance
-    , next : Dance
+    , dance : Dance
     , clock : Clock
     , channels : Array ( Int, Int, Float )
+    }
+
+
+type alias Dance =
+    { error : Bool
+    , code : String
+    , plan : Array Pose
+    , prev : Pose
+    , next : Pose
     }
 
 
@@ -64,7 +70,126 @@ type alias Clock =
     }
 
 
-type alias Dance =
+type alias Flags =
+    { width : Float, height : Float, hash : String }
+
+
+init : Flags -> ( Model, Cmd Msg )
+init flags =
+    let
+        dance =
+            if List.member flags.hash [ "", "#", "#!" ] then
+                defaultDance
+            else
+                case P.run hashParser flags.hash of
+                    Err _ ->
+                        defaultDance
+
+                    Ok (Ok loadedDance) ->
+                        loadedDance
+
+                    Ok (Err code) ->
+                        { defaultDance | error = True, code = code }
+    in
+    ( { time = 0
+      , tick = 1
+      , width = flags.width
+      , height = flags.height
+      , dance = dance
+      , clock = Clock 350 0 (Array.initialize 24 (toFloat >> (*) 350))
+      , channels = Array.repeat 8 ( 0, 0, 0 )
+      }
+    , Cmd.none
+    )
+
+
+type Msg
+    = Diff Float
+    | Resize Int Int
+    | SetCode String
+    | GotMidiMessage (List Int)
+
+
+update : Msg -> Model -> ( Model, Cmd Msg )
+update msg ({ dance } as model) =
+    case msg of
+        Diff diff ->
+            let
+                newTime =
+                    model.time + diff
+
+                newTick =
+                    model.tick + 1
+            in
+            if newTime <= model.clock.diffPerBeat then
+                pure { model | time = newTime }
+            else
+                pure
+                    { model
+                        | time = decrementAsMuchAsPossible model.clock.diffPerBeat newTime
+                        , tick = newTick
+                        , dance =
+                            { dance
+                                | prev = dance.next
+                                , next = safeModeGet newTick dance.plan |> Maybe.withDefault dance.prev
+                            }
+                    }
+
+        Resize width height ->
+            pure { model | width = toFloat width, height = toFloat height }
+
+        SetCode code ->
+            case P.run planParser code of
+                Err _ ->
+                    pure { model | dance = { dance | error = True, code = code } }
+
+                Ok plan ->
+                    ( { model | dance = { dance | error = False, code = code, plan = plan } }
+                    , setHash ("#!" ++ Base64.encode code)
+                    )
+
+        GotMidiMessage data ->
+            pure (applyMidi data model)
+
+
+{-| Sometimes we need to subtract more than once if the window has been un-focused for a while.
+Otherwise, the next few `Diff` messages will be very large numbers.
+-}
+decrementAsMuchAsPossible : number -> number -> number
+decrementAsMuchAsPossible interval n =
+    if interval > n then
+        n
+    else
+        decrementAsMuchAsPossible interval (n - interval)
+
+
+safeModeGet : Int -> Array a -> Maybe a
+safeModeGet index array =
+    Array.get (modBy (max 1 (Array.length array)) index) array
+
+
+port setHash : String -> Cmd msg
+
+
+pure : a -> ( a, Cmd msg )
+pure a =
+    ( a, Cmd.none )
+
+
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    Sub.batch
+        [ midiMessage GotMidiMessage
+        , Browser.Events.onAnimationFrameDelta Diff
+        , Browser.Events.onResize Resize
+        ]
+
+
+
+-- DANCE-LANG
+
+
+type alias Pose =
     { head : Move
     , torso : Move
     , leftArm : Move
@@ -81,72 +206,124 @@ type alias Move =
     }
 
 
-type alias Flags =
-    { width : Float, height : Float }
+{-| Steps to change:
 
+1.  Add `Debug.log` lines in `SetCode` msg
+2.  Modify editor contents on localhost
+3.  Update let-bindings below
 
-init : Flags -> ( Model, Cmd Msg )
-init flags =
+-}
+defaultDance : Dance
+defaultDance =
     let
         code =
-            String.join "\n"
-                [ "leftArm   down 0.15  left 0.15"
-                , "rightArm  down 1                 pitch -150"
-                , "rightLeg  down 2                 pitch 45"
-                , "head      left 0.7"
-                , "torso     left 0.5               roll 15"
-                , ""
-                , "-"
-                , ""
-                , "rightArm  down 0.15  right 0.15"
-                , "leftArm   down 1                 pitch -150"
-                , "leftLeg   down 2                 pitch 45"
-                , "head      right 0.7"
-                , "torso     right 0.5              roll -15"
-                ]
+            String.trimLeft """
+leftArm   down 0.15  left 0.15   back 1
+rightArm  forward 1  pitch -15
+rightLeg  down 2     pitch 45
+head      left 0.2
+torso     left 0.2   roll 5
 
-        ( plan, error ) =
-            case P.run codeParser code of
-                Ok x ->
-                    ( x, False )
+-
 
-                Err e ->
-                    ( Array.repeat 1 neutral, True )
+rightArm  down 0.15  right 0.15  back 1
+leftArm   forward 1  pitch -15
+leftLeg   down 2     pitch 45
+head      right 0.2
+torso     right 0.2  roll -5
+"""
+
+        prev =
+            { head = { rotateAngle = 0, rotateAxis = Axis3d.x, translate = Vector3d.meters -0.2 0 0 }
+            , leftArm = { rotateAngle = 0, rotateAxis = Axis3d.x, translate = Vector3d.meters -0.15 -0.15 -1 }
+            , leftLeg = { rotateAngle = 0, rotateAxis = Axis3d.x, translate = Vector3d.zero }
+            , rightArm = { rotateAngle = -15, rotateAxis = Axis3d.x, translate = Vector3d.meters 0 0 1 }
+            , rightLeg = { rotateAngle = 45, rotateAxis = Axis3d.x, translate = Vector3d.meters 0 -2 0 }
+            , torso = { rotateAngle = 5, rotateAxis = Axis3d.z, translate = Vector3d.meters -0.2 0 0 }
+            }
+
+        next =
+            { head = { rotateAngle = 0, rotateAxis = Axis3d.x, translate = Vector3d.meters 0.2 0 0 }
+            , leftArm = { rotateAngle = -15, rotateAxis = Axis3d.x, translate = Vector3d.meters 0 0 1 }
+            , leftLeg = { rotateAngle = 45, rotateAxis = Axis3d.x, translate = Vector3d.meters 0 -2 0 }
+            , rightArm = { rotateAngle = 0, rotateAxis = Axis3d.x, translate = Vector3d.meters 0.15 -0.15 -1 }
+            , rightLeg = { rotateAngle = 0, rotateAxis = Axis3d.x, translate = Vector3d.zero }
+            , torso = { rotateAngle = -5, rotateAxis = Axis3d.z, translate = Vector3d.meters 0.2 0 0 }
+            }
     in
-    ( { time = 0
-      , tick = 1
-      , width = flags.width
-      , height = flags.height
-      , code = code
-      , error = error
-      , plan = plan
-      , prev = Array.get 0 plan |> Maybe.withDefault neutral
-      , next = Array.get 1 plan |> Maybe.withDefault neutral
-      , clock = Clock 350 0 (Array.initialize 24 (toFloat >> (*) 350))
-      , channels = Array.repeat 8 ( 0, 0, 0 )
-      }
-    , Cmd.none
-    )
+    { error = False
+    , code = code
+    , prev = prev
+    , next = next
+    , plan = Array.fromList [ prev, next ]
+    }
 
 
-codeParser : P.Parser (Array Dance)
-codeParser =
-    P.loop Array.empty lineParser
+neutral : Pose
+neutral =
+    { head = noMove
+    , torso = noMove
+    , leftArm = noMove
+    , rightArm = noMove
+    , leftLeg = noMove
+    , rightLeg = noMove
+    }
 
 
-lineParser : Array Dance -> P.Parser (P.Step (Array Dance) (Array Dance))
-lineParser moves =
+hashParser : P.Parser (Result String Dance)
+hashParser =
+    P.succeed identity
+        |. P.chompWhile (\x -> x == '#' || x == '!')
+        |= P.getChompedString (P.chompWhile (\_ -> True))
+        |. P.end
+        |> P.andThen
+            (\x ->
+                case Base64.decode x of
+                    Err error ->
+                        P.problem error
+
+                    Ok code ->
+                        P.run danceParser code
+                            |> Result.mapError (\_ -> code)
+                            |> P.succeed
+            )
+
+
+danceParser : P.Parser Dance
+danceParser =
+    P.succeed
+        (\code plan ->
+            let
+                prev =
+                    Array.get 0 plan |> Maybe.withDefault neutral
+
+                next =
+                    Array.get 1 plan |> Maybe.withDefault prev
+            in
+            { error = False, code = code, prev = prev, next = next, plan = plan }
+        )
+        |= P.getSource
+        |= planParser
+
+
+planParser : P.Parser (Array Pose)
+planParser =
+    P.loop Array.empty poseParser
+
+
+poseParser : Array Pose -> P.Parser (P.Step (Array Pose) (Array Pose))
+poseParser poses =
     P.succeed (|>)
         |. P.spaces
         |= P.loop neutral partParser
         |. P.spaces
         |= P.oneOf
-            [ P.succeed (\x -> P.Done (Array.push x moves)) |. P.end
-            , P.succeed (\x -> P.Loop (Array.push x moves)) |. break
+            [ P.succeed (\x -> P.Done (Array.push x poses)) |. P.end
+            , P.succeed (\x -> P.Loop (Array.push x poses)) |. break
             ]
 
 
-partParser : Dance -> P.Parser (P.Step Dance Dance)
+partParser : Pose -> P.Parser (P.Step Pose Pose)
 partParser old =
     P.oneOf
         [ partKeywordParser
@@ -161,7 +338,7 @@ partParser old =
         ]
 
 
-partKeywordParser : P.Parser (Move -> Dance -> Dance)
+partKeywordParser : P.Parser (Move -> Pose -> Pose)
 partKeywordParser =
     P.oneOf
         [ P.succeed (\x a -> { a | head = merge a.head x }) |. P.keyword "head"
@@ -173,17 +350,9 @@ partKeywordParser =
         ]
 
 
-merge : Move -> Move -> Move
-merge a b =
-    { translate = Vector3d.plus a.translate b.translate
-    , rotateAxis = Axis3d.rotateAround a.rotateAxis (Angle.degrees a.rotateAngle) b.rotateAxis
-    , rotateAngle = b.rotateAngle
-    }
-
-
 moveParser :
-    ( Dance, Move -> Dance -> Dance )
-    -> P.Parser (P.Step ( Dance, Move -> Dance -> Dance ) Dance)
+    ( Pose, Move -> Pose -> Pose )
+    -> P.Parser (P.Step ( Pose, Move -> Pose -> Pose ) Pose)
 moveParser ( old, setter ) =
     P.oneOf
         [ P.succeed (|>)
@@ -203,8 +372,8 @@ moveKeywordParser =
                 , P.succeed Direction3d.negativeY |. P.keyword "down"
                 , P.succeed Direction3d.x |. P.keyword "right"
                 , P.succeed Direction3d.negativeX |. P.keyword "left"
-                , P.succeed Direction3d.z |. P.keyword "back"
-                , P.succeed Direction3d.negativeZ |. P.keyword "forward"
+                , P.succeed Direction3d.z |. P.keyword "forward"
+                , P.succeed Direction3d.negativeZ |. P.keyword "back"
                 ]
         , P.succeed rotateAround
             |= P.oneOf
@@ -222,14 +391,11 @@ break =
     P.chompIf (\x -> x == '-')
 
 
-neutral : Dance
-neutral =
-    { head = noMove
-    , torso = noMove
-    , leftArm = noMove
-    , rightArm = noMove
-    , leftLeg = noMove
-    , rightLeg = noMove
+merge : Move -> Move -> Move
+merge a b =
+    { translate = Vector3d.plus a.translate b.translate
+    , rotateAxis = Axis3d.rotateAround a.rotateAxis (Angle.degrees a.rotateAngle) b.rotateAxis
+    , rotateAngle = b.rotateAngle
     }
 
 
@@ -246,77 +412,6 @@ translateIn dir length =
 noMove : Move
 noMove =
     Move Vector3d.zero Axis3d.x 0
-
-
-type Msg
-    = Diff Float
-    | Resize Int Int
-    | SetCode String
-    | GotMidiMessage (List Int)
-
-
-update : Msg -> Model -> ( Model, Cmd Msg )
-update msg model =
-    case msg of
-        Diff diff ->
-            let
-                newTime =
-                    model.time + diff
-
-                newTick =
-                    model.tick + 1
-            in
-            if newTime <= model.clock.diffPerBeat then
-                pure { model | time = newTime }
-            else
-                pure
-                    { model
-                        | time = decrementAsMuchAsPossible model.clock.diffPerBeat newTime
-                        , tick = newTick
-                        , prev = model.next
-                        , next =
-                            Array.get (modBy (Array.length model.plan) newTick) model.plan
-                                |> Maybe.withDefault model.prev
-                    }
-
-        Resize width height ->
-            pure { model | width = toFloat width, height = toFloat height }
-
-        SetCode code ->
-            case P.run codeParser code of
-                Err _ ->
-                    pure { model | error = True }
-
-                Ok plan ->
-                    pure { model | code = code, plan = plan, error = False }
-
-        GotMidiMessage data ->
-            pure (applyMidi data model)
-
-
-{-| Sometimes we need to subtract more than once if the window has been un-focused for a while.
-Otherwise, the next few `Diff` messages will be very large numbers.
--}
-decrementAsMuchAsPossible : number -> number -> number
-decrementAsMuchAsPossible interval n =
-    if interval > n then
-        n
-    else
-        decrementAsMuchAsPossible interval (n - interval)
-
-
-pure : a -> ( a, Cmd msg )
-pure a =
-    ( a, Cmd.none )
-
-
-subscriptions : Model -> Sub Msg
-subscriptions model =
-    Sub.batch
-        [ midiMessage GotMidiMessage
-        , Browser.Events.onAnimationFrameDelta Diff
-        , Browser.Events.onResize Resize
-        ]
 
 
 
@@ -385,17 +480,13 @@ view : Model -> Html Msg
 view model =
     Html.main_ []
         [ viewSubject model
-        , Html.div
-            [ Html.Attributes.class "editor"
+        , Html.textarea
+            [ Html.Attributes.autofocus True
+            , Html.Events.onInput SetCode
+            , Html.Attributes.classList [ ( "error", model.dance.error ) ]
             , Html.Attributes.style "width" (String.fromInt (floor model.width // 2) ++ "px")
             ]
-            [ Html.textarea
-                [ Html.Attributes.autofocus True
-                , Html.Events.onInput SetCode
-                , Html.Attributes.classList [ ( "error", model.error ) ]
-                ]
-                [ Html.text model.code ]
-            ]
+            [ Html.text model.dance.code ]
         ]
 
 
@@ -437,15 +528,15 @@ viewSubject model =
         , exposure = Scene3d.Exposure.fromMaxLuminance (Luminance.nits 10000)
         , whiteBalance = Scene3d.Chromaticity.daylight
         }
-        [ dance model head .head
-        , dance model torso .torso
-        , dance model arm .leftArm
+        [ animate model head .head
+        , animate model torso .torso
+        , animate model arm .leftArm
             |> Drawable.translateIn Direction3d.negativeX armOffset
-        , dance model arm .rightArm
+        , animate model arm .rightArm
             |> Drawable.translateIn Direction3d.x armOffset
-        , dance model leg .leftLeg
+        , animate model leg .leftLeg
             |> Drawable.translateIn Direction3d.negativeX legOffset
-        , dance model leg .rightLeg
+        , animate model leg .rightLeg
             |> Drawable.translateIn Direction3d.x legOffset
         ]
 
@@ -529,17 +620,17 @@ var =
 
 
 
--- DANCE
+-- ANIMATE
 
 
-dance : Model -> Drawable () -> (Dance -> Move) -> Drawable ()
-dance model drawable part =
+animate : Model -> Drawable () -> (Pose -> Move) -> Drawable ()
+animate model drawable part =
     let
         a =
-            part model.prev
+            part model.dance.prev
 
         b =
-            part model.next
+            part model.dance.next
 
         vectorA =
             Vector3d.unwrap a.translate

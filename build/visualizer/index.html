@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,minimum-scale=1,initial-scale=1">
   <title>Main</title>
   <style>
-    html, body {
+    * {
       margin: 0;
       padding: 0;
     }
@@ -15,27 +15,20 @@
       overflow: hidden;
     }
 
-    .editor {
+    textarea {
       position: absolute;
       top: 0;
       right: 0;
       height: 100vh;
-      padding: 32px;
       box-sizing: border-box;
-      overflow-x: scroll;
+      border: solid transparent 32px;
+      font-size: 16px;
+      white-space: pre;
+      font-family: monospace;
     }
 
     .error {
-      border-color: red;
       outline-color: red;
-    }
-
-    textarea {
-      height: 100%;
-      width: 100%;
-      border: none;
-      white-space: pre;
-      font-family: monospace;
     }
   </style>
 </head>
@@ -45,7 +38,15 @@
 <script>
   const app = Elm.Visualizer.init({
     node: window.elm,
-    flags: { height: window.innerHeight, width: window.innerWidth }
+    flags: {
+      height: window.innerHeight,
+      width: window.innerWidth,
+      hash: window.location.hash,
+    }
+  });
+
+  app.ports.setHash.subscribe(function(hash) {
+    window.history.replaceState(null, null, hash);
   });
 
   navigator.requestMIDIAccess().then(function(access) {
