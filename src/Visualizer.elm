@@ -20,7 +20,7 @@ import Luminance
 import Parser as P exposing ((|.), (|=))
 import Pixels
 import Point3d
-import Quantity
+import Quantity exposing (Quantity(..))
 import Scene3d
 import Scene3d.Chromaticity
 import Scene3d.Drawable as Drawable exposing (Drawable, Material)
@@ -200,9 +200,8 @@ type alias Pose =
 
 
 type alias Move =
-    { translate : Vector3d Length.Meters ()
-    , rotateAxis : Axis3d Length.Meters ()
-    , rotateAngle : Float
+    { rotate : Vector3d Length.Meters ()
+    , translate : Vector3d Length.Meters ()
     }
 
 
@@ -234,21 +233,21 @@ torso     right 0.2  roll -5
 """
 
         prev =
-            { head = { rotateAngle = 0, rotateAxis = Axis3d.x, translate = Vector3d.meters -0.2 0 0 }
-            , leftArm = { rotateAngle = 0, rotateAxis = Axis3d.x, translate = Vector3d.meters -0.15 -0.15 -1 }
-            , leftLeg = { rotateAngle = 0, rotateAxis = Axis3d.x, translate = Vector3d.zero }
-            , rightArm = { rotateAngle = -15, rotateAxis = Axis3d.x, translate = Vector3d.meters 0 0 1 }
-            , rightLeg = { rotateAngle = 45, rotateAxis = Axis3d.x, translate = Vector3d.meters 0 -2 0 }
-            , torso = { rotateAngle = 5, rotateAxis = Axis3d.z, translate = Vector3d.meters -0.2 0 0 }
+            { head = { rotate = Vector3d.zero, translate = Vector3d.meters -0.2 0 0 }
+            , leftArm = { rotate = Vector3d.zero, translate = Vector3d.meters -0.15 -0.15 -1 }
+            , leftLeg = { rotate = Vector3d.zero, translate = Vector3d.zero }
+            , rightArm = { rotate = Vector3d.meters -15 0 0, translate = Vector3d.meters 0 0 1 }
+            , rightLeg = { rotate = Vector3d.meters 45 0 0, translate = Vector3d.meters 0 -2 0 }
+            , torso = { rotate = Vector3d.meters 0 0 5, translate = Vector3d.meters -0.2 0 0 }
             }
 
         next =
-            { head = { rotateAngle = 0, rotateAxis = Axis3d.x, translate = Vector3d.meters 0.2 0 0 }
-            , leftArm = { rotateAngle = -15, rotateAxis = Axis3d.x, translate = Vector3d.meters 0 0 1 }
-            , leftLeg = { rotateAngle = 45, rotateAxis = Axis3d.x, translate = Vector3d.meters 0 -2 0 }
-            , rightArm = { rotateAngle = 0, rotateAxis = Axis3d.x, translate = Vector3d.meters 0.15 -0.15 -1 }
-            , rightLeg = { rotateAngle = 0, rotateAxis = Axis3d.x, translate = Vector3d.zero }
-            , torso = { rotateAngle = -5, rotateAxis = Axis3d.z, translate = Vector3d.meters 0.2 0 0 }
+            { head = { rotate = Vector3d.zero, translate = Vector3d.meters 0.2 0 0 }
+            , leftArm = { rotate = Vector3d.meters -15 0 0, translate = Vector3d.meters 0 0 1 }
+            , leftLeg = { rotate = Vector3d.meters 45 0 0, translate = Vector3d.meters 0 -2 0 }
+            , rightArm = { rotate = Vector3d.zero, translate = Vector3d.meters 0.15 -0.15 -1 }
+            , rightLeg = { rotate = Vector3d.zero, translate = Vector3d.zero }
+            , torso = { rotate = Vector3d.meters 0 0 -5, translate = Vector3d.meters 0.2 0 0 }
             }
     in
     { error = False
@@ -366,20 +365,20 @@ moveParser ( old, setter ) =
 moveKeywordParser : P.Parser Move
 moveKeywordParser =
     P.oneOf
-        [ P.succeed translateIn
+        [ P.succeed (\dir x -> { noMove | rotate = vectorIn dir x })
             |= P.oneOf
-                [ P.succeed Direction3d.y |. P.keyword "up"
-                , P.succeed Direction3d.negativeY |. P.keyword "down"
-                , P.succeed Direction3d.x |. P.keyword "right"
-                , P.succeed Direction3d.negativeX |. P.keyword "left"
-                , P.succeed Direction3d.z |. P.keyword "forward"
-                , P.succeed Direction3d.negativeZ |. P.keyword "back"
+                [ P.succeed Direction3d.x |. P.keyword "pitch"
+                , P.succeed Direction3d.y |. P.keyword "yaw"
+                , P.succeed Direction3d.z |. P.keyword "roll"
                 ]
-        , P.succeed rotateAround
+        , P.succeed (\dir x -> { noMove | translate = vectorIn dir x })
             |= P.oneOf
-                [ P.succeed Axis3d.x |. P.keyword "pitch"
-                , P.succeed Axis3d.y |. P.keyword "yaw"
-                , P.succeed Axis3d.z |. P.keyword "roll"
+                [ P.succeed Direction3d.positiveY |. P.keyword "up"
+                , P.succeed Direction3d.negativeY |. P.keyword "down"
+                , P.succeed Direction3d.positiveX |. P.keyword "right"
+                , P.succeed Direction3d.negativeX |. P.keyword "left"
+                , P.succeed Direction3d.positiveZ |. P.keyword "forward"
+                , P.succeed Direction3d.negativeZ |. P.keyword "back"
                 ]
         ]
         |. P.spaces
@@ -393,25 +392,19 @@ break =
 
 merge : Move -> Move -> Move
 merge a b =
-    { translate = Vector3d.plus a.translate b.translate
-    , rotateAxis = Axis3d.rotateAround a.rotateAxis (Angle.degrees a.rotateAngle) b.rotateAxis
-    , rotateAngle = b.rotateAngle
+    { rotate = Vector3d.plus a.rotate b.rotate
+    , translate = Vector3d.plus a.translate b.translate
     }
 
 
-rotateAround : Axis3d Length.Meters () -> Float -> Move
-rotateAround axis angle =
-    { noMove | rotateAxis = axis, rotateAngle = angle }
-
-
-translateIn : Direction3d () -> Float -> Move
-translateIn dir length =
-    { noMove | translate = Vector3d.withLength (Length.meters length) dir }
+vectorIn : Direction3d () -> Float -> Vector3d Length.Meters ()
+vectorIn dir length =
+    Vector3d.withLength (Length.meters length) dir
 
 
 noMove : Move
 noMove =
-    Move Vector3d.zero Axis3d.x 0
+    Move Vector3d.zero Vector3d.zero
 
 
 
@@ -485,7 +478,7 @@ view model =
             , Html.Attributes.spellcheck False
             , Html.Events.onInput SetCode
             , Html.Attributes.classList [ ( "error", model.dance.error ) ]
-            , Html.Attributes.style "width" (String.fromInt (floor model.width // 2) ++ "px")
+            , Html.Attributes.style "width" (String.fromInt (floor model.width // 3) ++ "px")
             ]
             [ Html.text model.dance.code ]
         ]
@@ -522,7 +515,7 @@ viewSubject model =
     in
     Scene3d.render [ Scene3d.clearColor Color.darkPurple ]
         { camera = camera
-        , width = Pixels.pixels (model.width / 2)
+        , width = Pixels.pixels (model.width * 2 / 3)
         , height = Pixels.pixels model.height
         , ambientLighting = Just ambientLighting
         , lights = Scene3d.oneLight sunlight { castsShadows = False }
@@ -633,20 +626,33 @@ animate model drawable part =
         b =
             part model.dance.next
 
-        vectorA =
-            Vector3d.unwrap a.translate
+        rotation =
+            curveVector model a.rotate b.rotate
 
-        vectorB =
-            Vector3d.unwrap b.translate
-
-        curve start end =
-            cubicBezier (model.time / model.clock.diffPerBeat) start end
+        translation =
+            curveVector model a.translate b.translate
     in
     drawable
-        |> Drawable.rotateAround a.rotateAxis (Angle.degrees (curve a.rotateAngle b.rotateAngle {- TODO -}))
-        |> Drawable.translateIn Direction3d.x (Length.meters (curve vectorA.x vectorB.x))
-        |> Drawable.translateIn Direction3d.y (Length.meters (curve vectorA.y vectorB.y))
-        |> Drawable.translateIn Direction3d.z (Length.meters (curve vectorA.z vectorB.z))
+        |> Drawable.rotateAround
+            (Vector3d.direction rotation
+                |> Maybe.withDefault Direction3d.x
+                |> Axis3d.through Point3d.origin
+            )
+            (Angle.degrees (unQuantity (Vector3d.length rotation)))
+        |> Drawable.translateBy translation
+
+
+curveVector : Model -> Vector3d Length.Meters () -> Vector3d Length.Meters () -> Vector3d Length.Meters ()
+curveVector model a b =
+    Vector3d.meters
+        (curve model Vector3d.xComponent a b)
+        (curve model Vector3d.yComponent a b)
+        (curve model Vector3d.zComponent a b)
+
+
+curve : Model -> (a -> Quantity Float b) -> a -> a -> Float
+curve model unwrap a b =
+    cubicBezier (model.time / model.clock.diffPerBeat) (unQuantity (unwrap a)) (unQuantity (unwrap b))
 
 
 cubicBezier : Float -> Float -> Float -> Float
@@ -668,3 +674,8 @@ cubicBezier t p0 p3 =
         + (p1 * 3 * ((1 - t) ^ 2) * t)
         + (p2 * 3 * (1 - t) * (t ^ 2))
         + (p3 * (t ^ 3))
+
+
+unQuantity : Quantity number a -> number
+unQuantity (Quantity x) =
+    x
