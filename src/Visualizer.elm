@@ -90,8 +90,19 @@ init flags =
     let
         code =
             String.join "\n"
-                [ "leftArm  down 0.15  left 0.15    rightArm down 1  pitch -150     rightLeg down 2  pitch 45     head left 0.7   torso left 0.5   roll 15"
-                , "rightArm down 0.15 right 0.15    leftArm down 1   pitch -150     leftLeg  down 2  pitch 45     head right 0.7  torso right 0.5  roll -15"
+                [ "leftArm   down 0.15  left 0.15"
+                , "rightArm  down 1                 pitch -150"
+                , "rightLeg  down 2                 pitch 45"
+                , "head      left 0.7"
+                , "torso     left 0.5               roll 15"
+                , ""
+                , "-"
+                , ""
+                , "rightArm  down 0.15  right 0.15"
+                , "leftArm   down 1                 pitch -150"
+                , "leftLeg   down 2                 pitch 45"
+                , "head      right 0.7"
+                , "torso     right 0.5              roll -15"
                 ]
 
         ( plan, error ) =
@@ -126,12 +137,12 @@ codeParser =
 lineParser : Array Dance -> P.Parser (P.Step (Array Dance) (Array Dance))
 lineParser moves =
     P.succeed (|>)
-        |. whitespace
+        |. P.spaces
         |= P.loop neutral partParser
-        |. whitespace
+        |. P.spaces
         |= P.oneOf
             [ P.succeed (\x -> P.Done (Array.push x moves)) |. P.end
-            , P.succeed (\x -> P.Loop (Array.push x moves)) |. newline
+            , P.succeed (\x -> P.Loop (Array.push x moves)) |. break
             ]
 
 
@@ -142,9 +153,9 @@ partParser old =
             |> P.andThen
                 (\setter ->
                     P.succeed P.Loop
-                        |. whitespace
+                        |. P.spaces
                         |= P.loop ( old, setter ) moveParser
-                        |. whitespace
+                        |. P.spaces
                 )
         , P.succeed (P.Done old)
         ]
@@ -178,7 +189,7 @@ moveParser ( old, setter ) =
         [ P.succeed (|>)
             |= moveKeywordParser
             |= P.succeed (\x -> P.Loop ( setter x old, setter ))
-            |. whitespace
+            |. P.spaces
         , P.succeed (P.Done old)
         ]
 
@@ -202,18 +213,13 @@ moveKeywordParser =
                 , P.succeed Axis3d.z |. P.keyword "roll"
                 ]
         ]
-        |. whitespace
+        |. P.spaces
         |= P.oneOf [ P.succeed negate |. P.symbol "-" |= P.float, P.float ]
 
 
-newline : P.Parser ()
-newline =
-    P.chompIf (\x -> x == '\n')
-
-
-whitespace : P.Parser ()
-whitespace =
-    P.chompWhile (\x -> x == ' ')
+break : P.Parser ()
+break =
+    P.chompIf (\x -> x == '-')
 
 
 neutral : Dance
