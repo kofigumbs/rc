@@ -218,17 +218,17 @@ defaultDance =
     let
         code =
             String.trimLeft """
-leftArm   down 0.15  left 0.15   back 1
-rightArm  forward 1  pitch -15
-rightLeg  down 2     pitch 45
+leftarm   down 0.15  left 0.15   back 1
+rightarm  forward 1  pitch -15
+rightleg  down 2     pitch 45
 head      left 0.2
 torso     left 0.2   roll 5
 
 -
 
-rightArm  down 0.15  right 0.15  back 1
-leftArm   forward 1  pitch -15
-leftLeg   down 2     pitch 45
+rightarm  down 0.15  right 0.15  back 1
+leftarm   forward 1  pitch -15
+leftleg   down 2     pitch 45
 head      right 0.2
 torso     right 0.2  roll -5
 """
@@ -343,10 +343,10 @@ partKeywordParser =
     P.oneOf
         [ P.succeed (\x a -> { a | head = merge a.head x }) |. P.keyword "head"
         , P.succeed (\x a -> { a | torso = merge a.torso x }) |. P.keyword "torso"
-        , P.succeed (\x a -> { a | leftArm = merge a.leftArm x }) |. P.keyword "leftArm"
-        , P.succeed (\x a -> { a | rightArm = merge a.rightArm x }) |. P.keyword "rightArm"
-        , P.succeed (\x a -> { a | leftLeg = merge a.leftLeg x }) |. P.keyword "leftLeg"
-        , P.succeed (\x a -> { a | rightLeg = merge a.rightLeg x }) |. P.keyword "rightLeg"
+        , P.succeed (\x a -> { a | leftArm = merge a.leftArm x }) |. P.keyword "leftarm"
+        , P.succeed (\x a -> { a | rightArm = merge a.rightArm x }) |. P.keyword "rightarm"
+        , P.succeed (\x a -> { a | leftLeg = merge a.leftLeg x }) |. P.keyword "leftleg"
+        , P.succeed (\x a -> { a | rightLeg = merge a.rightLeg x }) |. P.keyword "rightleg"
         ]
 
 
@@ -482,6 +482,7 @@ view model =
         [ viewSubject model
         , Html.textarea
             [ Html.Attributes.autofocus True
+            , Html.Attributes.spellcheck False
             , Html.Events.onInput SetCode
             , Html.Attributes.classList [ ( "error", model.dance.error ) ]
             , Html.Attributes.style "width" (String.fromInt (floor model.width // 2) ++ "px")
