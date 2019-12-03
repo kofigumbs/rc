@@ -122,7 +122,7 @@ init flags =
       , plan = plan
       , prev = Array.get 0 plan |> Maybe.withDefault neutral
       , next = Array.get 1 plan |> Maybe.withDefault neutral
-      , clock = Clock 0 0 (Array.repeat 24 0.0)
+      , clock = Clock 350 0 (Array.initialize 24 (toFloat >> (*) 350))
       , channels = Array.repeat 8 ( 0, 0, 0 )
       }
     , Cmd.none
@@ -266,12 +266,12 @@ update msg model =
                 newTick =
                     model.tick + 1
             in
-            if newTime <= stepDuration then
+            if newTime <= model.clock.diffPerBeat then
                 pure { model | time = newTime }
             else
                 pure
                     { model
-                        | time = decrementAsMuchAsPossible stepDuration newTime
+                        | time = decrementAsMuchAsPossible model.clock.diffPerBeat newTime
                         , tick = newTick
                         , prev = model.next
                         , next =
@@ -548,18 +548,13 @@ dance model drawable part =
             Vector3d.unwrap b.translate
 
         curve start end =
-            cubicBezier (model.time / stepDuration) start end
+            cubicBezier (model.time / model.clock.diffPerBeat) start end
     in
     drawable
         |> Drawable.rotateAround a.rotateAxis (Angle.degrees (curve a.rotateAngle b.rotateAngle {- TODO -}))
         |> Drawable.translateIn Direction3d.x (Length.meters (curve vectorA.x vectorB.x))
         |> Drawable.translateIn Direction3d.y (Length.meters (curve vectorA.y vectorB.y))
         |> Drawable.translateIn Direction3d.z (Length.meters (curve vectorA.z vectorB.z))
-
-
-stepDuration : Float
-stepDuration =
-    350
 
 
 cubicBezier : Float -> Float -> Float -> Float
