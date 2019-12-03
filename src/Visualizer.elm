@@ -75,7 +75,10 @@ type alias Dance =
 
 
 type alias Move =
-    Vector3d Length.Meters ()
+    { translate : Vector3d Length.Meters ()
+    , rotateAxis : Axis3d Length.Meters ()
+    , rotateAngle : Float
+    }
 
 
 type alias Flags =
@@ -87,12 +90,8 @@ init flags =
     let
         code =
             String.join "\n"
-                [ "leftArm down 0.15 left 0.15      rightArm up 2    head left 0.7     torso left 0.15"
-                , ""
-                , "leftArm down 0.15 left 0.15      rightArm up 2    head left 0.7     torso left 0.15"
-                , "rightArm down 0.15 right 0.15    leftArm up 2     head right 0.7    torso right 0.15"
-                , ""
-                , "rightArm down 0.15 right 0.15    leftArm up 2     head right 0.7    torso right 0.15"
+                [ "leftArm  down 0.15  left 0.15    rightArm down 1  pitch -150     rightLeg down 2  pitch 45     head left 0.7   torso left 0.5   roll 15"
+                , "rightArm down 0.15 right 0.15    leftArm down 1   pitch -150     leftLeg  down 2  pitch 45     head right 0.7  torso right 0.5  roll -15"
                 ]
 
         ( plan, error ) =
@@ -154,13 +153,21 @@ partParser old =
 partKeywordParser : P.Parser (Move -> Dance -> Dance)
 partKeywordParser =
     P.oneOf
-        [ P.succeed (\x a -> { a | head = Vector3d.plus a.head x }) |. P.keyword "head"
-        , P.succeed (\x a -> { a | torso = Vector3d.plus a.torso x }) |. P.keyword "torso"
-        , P.succeed (\x a -> { a | leftArm = Vector3d.plus a.leftArm x }) |. P.keyword "leftArm"
-        , P.succeed (\x a -> { a | rightArm = Vector3d.plus a.rightArm x }) |. P.keyword "rightArm"
-        , P.succeed (\x a -> { a | leftLeg = Vector3d.plus a.leftLeg x }) |. P.keyword "leftLeg"
-        , P.succeed (\x a -> { a | rightLeg = Vector3d.plus a.rightLeg x }) |. P.keyword "rightLeg"
+        [ P.succeed (\x a -> { a | head = merge a.head x }) |. P.keyword "head"
+        , P.succeed (\x a -> { a | torso = merge a.torso x }) |. P.keyword "torso"
+        , P.succeed (\x a -> { a | leftArm = merge a.leftArm x }) |. P.keyword "leftArm"
+        , P.succeed (\x a -> { a | rightArm = merge a.rightArm x }) |. P.keyword "rightArm"
+        , P.succeed (\x a -> { a | leftLeg = merge a.leftLeg x }) |. P.keyword "leftLeg"
+        , P.succeed (\x a -> { a | rightLeg = merge a.rightLeg x }) |. P.keyword "rightLeg"
         ]
+
+
+merge : Move -> Move -> Move
+merge a b =
+    { translate = Vector3d.plus a.translate b.translate
+    , rotateAxis = Axis3d.rotateAround a.rotateAxis (Angle.degrees a.rotateAngle) b.rotateAxis
+    , rotateAngle = b.rotateAngle
+    }
 
 
 moveParser :
@@ -178,15 +185,25 @@ moveParser ( old, setter ) =
 
 moveKeywordParser : P.Parser Move
 moveKeywordParser =
-    P.succeed vectorIn
-        |= P.oneOf
-            [ P.succeed Direction3d.y |. P.keyword "up"
-            , P.succeed Direction3d.negativeY |. P.keyword "down"
-            , P.succeed Direction3d.negativeX |. P.keyword "left"
-            , P.succeed Direction3d.x |. P.keyword "right"
-            ]
+    P.oneOf
+        [ P.succeed translateIn
+            |= P.oneOf
+                [ P.succeed Direction3d.y |. P.keyword "up"
+                , P.succeed Direction3d.negativeY |. P.keyword "down"
+                , P.succeed Direction3d.x |. P.keyword "right"
+                , P.succeed Direction3d.negativeX |. P.keyword "left"
+                , P.succeed Direction3d.z |. P.keyword "back"
+                , P.succeed Direction3d.negativeZ |. P.keyword "forward"
+                ]
+        , P.succeed rotateAround
+            |= P.oneOf
+                [ P.succeed Axis3d.x |. P.keyword "pitch"
+                , P.succeed Axis3d.y |. P.keyword "yaw"
+                , P.succeed Axis3d.z |. P.keyword "roll"
+                ]
+        ]
         |. whitespace
-        |= P.float
+        |= P.oneOf [ P.succeed negate |. P.symbol "-" |= P.float, P.float ]
 
 
 newline : P.Parser ()
@@ -201,18 +218,28 @@ whitespace =
 
 neutral : Dance
 neutral =
-    { head = Vector3d.zero
-    , torso = Vector3d.zero
-    , leftArm = Vector3d.zero
-    , rightArm = Vector3d.zero
-    , leftLeg = Vector3d.zero
-    , rightLeg = Vector3d.zero
+    { head = noMove
+    , torso = noMove
+    , leftArm = noMove
+    , rightArm = noMove
+    , leftLeg = noMove
+    , rightLeg = noMove
     }
 
 
-vectorIn : Direction3d a -> Float -> Vector3d Length.Meters a
-vectorIn dir length =
-    Vector3d.withLength (Length.meters length) dir
+rotateAround : Axis3d Length.Meters () -> Float -> Move
+rotateAround axis angle =
+    { noMove | rotateAxis = axis, rotateAngle = angle }
+
+
+translateIn : Direction3d () -> Float -> Move
+translateIn dir length =
+    { noMove | translate = Vector3d.withLength (Length.meters length) dir }
+
+
+noMove : Move
+noMove =
+    Move Vector3d.zero Axis3d.x 0
 
 
 type Msg
@@ -238,7 +265,7 @@ update msg model =
             else
                 pure
                     { model
-                        | time = newTime - stepDuration
+                        | time = decrementAsMuchAsPossible stepDuration newTime
                         , tick = newTick
                         , prev = model.next
                         , next =
@@ -259,6 +286,17 @@ update msg model =
 
         GotMidiMessage data ->
             pure (applyMidi data model)
+
+
+{-| Sometimes we need to subtract more than once if the window has been un-focused for a while.
+Otherwise, the next few `Diff` messages will be very large numbers.
+-}
+decrementAsMuchAsPossible : number -> number -> number
+decrementAsMuchAsPossible interval n =
+    if interval > n then
+        n
+    else
+        decrementAsMuchAsPossible interval (n - interval)
 
 
 pure : a -> ( a, Cmd msg )
@@ -341,13 +379,17 @@ view : Model -> Html Msg
 view model =
     Html.main_ []
         [ viewSubject model
-        , Html.textarea
-            [ Html.Attributes.autofocus True
+        , Html.div
+            [ Html.Attributes.class "editor"
             , Html.Attributes.style "width" (String.fromInt (floor model.width // 2) ++ "px")
-            , Html.Events.onInput SetCode
-            , Html.Attributes.classList [ ( "error", model.error ) ]
             ]
-            [ Html.text model.code ]
+            [ Html.textarea
+                [ Html.Attributes.autofocus True
+                , Html.Events.onInput SetCode
+                , Html.Attributes.classList [ ( "error", model.error ) ]
+                ]
+                [ Html.text model.code ]
+            ]
         ]
 
 
@@ -488,18 +530,25 @@ dance : Model -> Drawable () -> (Dance -> Move) -> Drawable ()
 dance model drawable part =
     let
         a =
-            Vector3d.unwrap (part model.prev)
+            part model.prev
 
         b =
-            Vector3d.unwrap (part model.next)
+            part model.next
 
-        distance start end =
-            Length.meters (cubicBezier (model.time / stepDuration) start end)
+        vectorA =
+            Vector3d.unwrap a.translate
+
+        vectorB =
+            Vector3d.unwrap b.translate
+
+        curve start end =
+            cubicBezier (model.time / stepDuration) start end
     in
     drawable
-        |> Drawable.translateIn Direction3d.x (distance a.x b.x)
-        |> Drawable.translateIn Direction3d.y (distance a.y b.y)
-        |> Drawable.translateIn Direction3d.z (distance a.z b.z)
+        |> Drawable.rotateAround a.rotateAxis (Angle.degrees (curve a.rotateAngle b.rotateAngle {- TODO -}))
+        |> Drawable.translateIn Direction3d.x (Length.meters (curve vectorA.x vectorB.x))
+        |> Drawable.translateIn Direction3d.y (Length.meters (curve vectorA.y vectorB.y))
+        |> Drawable.translateIn Direction3d.z (Length.meters (curve vectorA.z vectorB.z))
 
 
 stepDuration : Float

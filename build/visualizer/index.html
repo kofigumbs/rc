@@ -15,20 +15,27 @@
       overflow: hidden;
     }
 
-    textarea {
+    .editor {
       position: absolute;
       top: 0;
       right: 0;
       height: 100vh;
-      font-family: monospace;
       padding: 32px;
       box-sizing: border-box;
-      overflow: scroll;
+      overflow-x: scroll;
     }
 
     .error {
       border-color: red;
       outline-color: red;
+    }
+
+    textarea {
+      height: 100%;
+      width: 100%;
+      border: none;
+      white-space: pre;
+      font-family: monospace;
     }
   </style>
 </head>
