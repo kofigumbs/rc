@@ -205,21 +205,15 @@ type alias Move =
     }
 
 
-{-| Steps to change:
-
-1.  Add `Debug.log` lines in `SetCode` msg
-2.  Modify editor contents on localhost
-3.  Update let-bindings below
-
--}
 defaultDance : Dance
 defaultDance =
+    -- TODO make this easier to modify
     let
         code =
             String.trimLeft """
 leftarm   down 0.15  left 0.15   back 1
 rightarm  forward 1  pitch -15
-rightleg  down 2     pitch 45
+rightleg  pitch 30
 head      left 0.2
 torso     left 0.2   roll 5
 
@@ -227,7 +221,7 @@ torso     left 0.2   roll 5
 
 rightarm  down 0.15  right 0.15  back 1
 leftarm   forward 1  pitch -15
-leftleg   down 2     pitch 45
+leftleg   pitch 30
 head      right 0.2
 torso     right 0.2  roll -5
 """
@@ -237,14 +231,14 @@ torso     right 0.2  roll -5
             , leftArm = { rotate = Vector3d.zero, translate = Vector3d.meters -0.15 -0.15 -1 }
             , leftLeg = { rotate = Vector3d.zero, translate = Vector3d.zero }
             , rightArm = { rotate = Vector3d.meters -15 0 0, translate = Vector3d.meters 0 0 1 }
-            , rightLeg = { rotate = Vector3d.meters 45 0 0, translate = Vector3d.meters 0 -2 0 }
+            , rightLeg = { rotate = Vector3d.meters 30 0 0, translate = Vector3d.zero }
             , torso = { rotate = Vector3d.meters 0 0 5, translate = Vector3d.meters -0.2 0 0 }
             }
 
         next =
             { head = { rotate = Vector3d.zero, translate = Vector3d.meters 0.2 0 0 }
             , leftArm = { rotate = Vector3d.meters -15 0 0, translate = Vector3d.meters 0 0 1 }
-            , leftLeg = { rotate = Vector3d.meters 45 0 0, translate = Vector3d.meters 0 -2 0 }
+            , leftLeg = { rotate = Vector3d.meters 30 0 0, translate = Vector3d.zero }
             , rightArm = { rotate = Vector3d.zero, translate = Vector3d.meters 0.15 -0.15 -1 }
             , rightLeg = { rotate = Vector3d.zero, translate = Vector3d.zero }
             , torso = { rotate = Vector3d.meters 0 0 -5, translate = Vector3d.meters 0.2 0 0 }
@@ -523,15 +517,20 @@ viewSubject model =
         , whiteBalance = Scene3d.Chromaticity.daylight
         }
         [ animate model head .head
-        , animate model torso .torso
-        , animate model arm .leftArm
+        , animate model torso.drawable .torso
+            |> torso.translation
+        , animate model arm.drawable .leftArm
+            |> arm.translation
             |> Drawable.translateIn Direction3d.negativeX armOffset
-        , animate model arm .rightArm
-            |> Drawable.translateIn Direction3d.x armOffset
-        , animate model leg .leftLeg
+        , animate model arm.drawable .rightArm
+            |> arm.translation
+            |> Drawable.translateIn Direction3d.positiveX armOffset
+        , animate model leg.drawable .leftLeg
+            |> leg.translation
             |> Drawable.translateIn Direction3d.negativeX legOffset
-        , animate model leg .rightLeg
-            |> Drawable.translateIn Direction3d.x legOffset
+        , animate model leg.drawable .rightLeg
+            |> leg.translation
+            |> Drawable.translateIn Direction3d.positiveX legOffset
         ]
 
 
@@ -540,46 +539,48 @@ head =
     bodyPart <| Shape.sphere { radius = var.headRadius, subdivisions = 72 }
 
 
-leg : Drawable a
-leg =
-    pill var.limbRadius var.legLength
-        |> Drawable.translateIn Direction3d.negativeY
-            (Quantity.sum [ var.headRadius, var.spacing, var.torsoLength, var.spacing ])
-
-
-arm : Drawable a
-arm =
-    pill var.limbRadius var.armLength
-        |> Drawable.translateIn Direction3d.negativeY (Quantity.plus var.spacing var.headRadius)
-
-
-torso : Drawable a
+torso : { drawable : Drawable a, translation : Drawable a -> Drawable a }
 torso =
-    pill torsoRadius var.torsoLength
-        |> Drawable.translateIn Direction3d.negativeY (Quantity.plus var.spacing var.headRadius)
+    pill torsoRadius var.torsoLength <| Quantity.plus var.spacing var.headRadius
 
 
-pill : Length -> Length -> Drawable a
-pill radius length =
+arm : { drawable : Drawable a, translation : Drawable a -> Drawable a }
+arm =
+    pill var.limbRadius var.armLength <| Quantity.plus var.spacing var.headRadius
+
+
+leg : { drawable : Drawable a, translation : Drawable a -> Drawable a }
+leg =
+    pill var.limbRadius var.legLength <|
+        Quantity.sum [ var.headRadius, var.spacing, var.torsoLength, var.spacing ]
+
+
+pill : Length -> Length -> Length -> { drawable : Drawable a, translation : Drawable a -> Drawable a }
+pill radius length offset =
     let
         height =
             Quantity.minus (Quantity.twice radius) length
 
-        trunk =
-            Shape.cylinder { radius = radius, height = height, subdivisions = 72 }
+        halfHeight =
+            Quantity.half height
 
         end =
-            Shape.sphere { radius = radius, subdivisions = 72 }
+            bodyPart <| Shape.sphere { radius = radius, subdivisions = 72 }
+
+        trunk =
+            bodyPart <| Shape.cylinder { radius = radius, height = height, subdivisions = 72 }
     in
-    Drawable.group
-        [ bodyPart trunk
-            |> Drawable.translateIn Direction3d.z radius
-        , bodyPart end
-            |> Drawable.translateIn Direction3d.z radius
-        , bodyPart end
-            |> Drawable.translateIn Direction3d.z (Quantity.plus radius height)
-        ]
-        |> Drawable.rotateAround Axis3d.x (Angle.degrees 90)
+    { drawable =
+        Drawable.group
+            [ Drawable.translateIn Direction3d.negativeZ halfHeight end
+            , Drawable.translateIn Direction3d.positiveZ halfHeight end
+            , Drawable.translateIn Direction3d.negativeZ halfHeight trunk
+            ]
+            |> Drawable.rotateAround Axis3d.x (Angle.degrees 90)
+    , translation =
+        Quantity.sum [ offset, radius, halfHeight ]
+            |> Drawable.translateIn Direction3d.negativeY
+    }
 
 
 bodyPart : Mesh a (Mesh.Triangles Mesh.WithNormals uv tangents shadows) -> Drawable a
