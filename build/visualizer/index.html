@@ -56,7 +56,7 @@
   navigator.requestMIDIAccess().then(function(access) {
     for(var input of access.inputs.values()) {
       input.onmidimessage = function(event) {
-        app.ports.midiMessage.send(Array.from(event.data));
+        app.ports.midiMessage.send([ event.timeStamp, Array.from(event.data) ]);
       };
     }
   });

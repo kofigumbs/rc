@@ -16,7 +16,7 @@ import Html exposing (Html)
 import Html.Attributes
 import Html.Events
 import Illuminance
-import Json.Decode as D
+import Json.Encode as E
 import Length exposing (Length)
 import Luminance
 import Parser as P exposing ((|.), (|=))
@@ -46,28 +46,11 @@ main =
 
 
 type alias Model =
-    { time : Float
-    , width : Float
+    { width : Float
     , height : Float
     , dance : Dance
     , clock : Clock
     , lastNote : String
-    }
-
-
-type alias Dance =
-    { error : Bool
-    , code : String
-    , plan : Dict String Pose
-    , prev : Pose
-    , next : Pose
-    }
-
-
-type alias Clock =
-    { diffPerBeat : Float
-    , index : Int
-    , history : Array Float
     }
 
 
@@ -92,11 +75,10 @@ init flags =
                     Ok (Err code) ->
                         { defaultDance | error = True, code = code }
     in
-    ( { time = 0
-      , width = flags.width
+    ( { width = flags.width
       , height = flags.height
       , dance = dance
-      , clock = Clock 0 0 (Array.repeat 72 0)
+      , clock = initialClock
       , lastNote = ""
       }
     , Cmd.none
@@ -104,34 +86,19 @@ init flags =
 
 
 type Msg
-    = Diff Float
-    | Resize Int Int
+    = Resize Int Int
+    | GotMidiMessage ( Float, List Int )
     | SetCode String
-    | GotMidiMessage (List Int)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg ({ dance } as model) =
     case msg of
-        Diff diff ->
-            let
-                newTime =
-                    model.time + diff
-
-                newDance =
-                    if
-                        progress newTime model.clock.diffPerBeat
-                            > progress model.time model.clock.diffPerBeat
-                    then
-                        dance
-                    else
-                        { dance | prev = dance.next, next = nextPose model.lastNote dance }
-            in
-            pure
-                { model | time = newTime, dance = newDance }
-
         Resize width height ->
             pure { model | width = toFloat width, height = toFloat height }
+
+        GotMidiMessage ( time, data ) ->
+            pure (applyMidi time data model)
 
         SetCode code ->
             case P.run planParser code of
@@ -142,9 +109,6 @@ update msg ({ dance } as model) =
                     ( { model | dance = { dance | error = False, code = code, plan = plan } }
                     , setHash ("#!" ++ Base64.encode code)
                     )
-
-        GotMidiMessage data ->
-            pure (applyMidi data model)
 
 
 nextPose : String -> Dance -> Pose
@@ -164,13 +128,21 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ midiMessage GotMidiMessage
-        , Browser.Events.onAnimationFrameDelta Diff
         , Browser.Events.onResize Resize
         ]
 
 
 
 -- DANCE-LANG
+
+
+type alias Dance =
+    { error : Bool
+    , code : String
+    , plan : Dict String Pose
+    , prev : Pose
+    , next : Pose
+    }
 
 
 type alias Pose =
@@ -191,53 +163,36 @@ type alias Move =
 
 defaultDance : Dance
 defaultDance =
-    -- TODO make this easier to modify
     let
         code =
             String.trimLeft """
 C
 leftarm   down 0.15  left 0.15   back 1
-rightarm  forward 1  pitch -15
+rightarm  forward 1  pitch -375
 rightleg  pitch 30
 head      left 0.2
 torso     left 0.2   roll 5
 
 G
 rightarm  down 0.15  right 0.15  back 1
-leftarm   forward 1  pitch -15
+leftarm   forward 1  pitch -375
 leftleg   pitch 30
 head      right 0.2
 torso     right 0.2  roll -5
 """
-
-        prev =
-            { head = { rotate = Vector3d.zero, translate = Vector3d.meters -0.2 0 0 }
-            , leftArm = { rotate = Vector3d.zero, translate = Vector3d.meters -0.15 -0.15 -1 }
-            , leftLeg = { rotate = Vector3d.zero, translate = Vector3d.zero }
-            , rightArm = { rotate = Vector3d.meters -15 0 0, translate = Vector3d.meters 0 0 1 }
-            , rightLeg = { rotate = Vector3d.meters 30 0 0, translate = Vector3d.zero }
-            , torso = { rotate = Vector3d.meters 0 0 5, translate = Vector3d.meters -0.2 0 0 }
-            }
-
-        next =
-            { head = { rotate = Vector3d.zero, translate = Vector3d.meters 0.2 0 0 }
-            , leftArm = { rotate = Vector3d.meters -15 0 0, translate = Vector3d.meters 0 0 1 }
-            , leftLeg = { rotate = Vector3d.meters 30 0 0, translate = Vector3d.zero }
-            , rightArm = { rotate = Vector3d.zero, translate = Vector3d.meters 0.15 -0.15 -1 }
-            , rightLeg = { rotate = Vector3d.zero, translate = Vector3d.zero }
-            , torso = { rotate = Vector3d.meters 0 0 -5, translate = Vector3d.meters 0.2 0 0 }
-            }
     in
-    { error = False
-    , code = code
-    , prev = prev
-    , next = next
-    , plan = Dict.fromList [ ( "C", prev ), ( "G", next ) ]
-    }
+    P.run danceParser code
+        |> Result.withDefault
+            { error = True
+            , code = code
+            , prev = neutralPose
+            , next = neutralPose
+            , plan = Dict.empty
+            }
 
 
-neutral : Pose
-neutral =
+neutralPose : Pose
+neutralPose =
     { head = noMove
     , torso = noMove
     , leftArm = noMove
@@ -280,7 +235,7 @@ danceParser =
                             ( one, one )
 
                         [] ->
-                            ( neutral, neutral )
+                            ( neutralPose, neutralPose )
             in
             { error = False, code = code, prev = prev, next = next, plan = plan }
         )
@@ -300,7 +255,7 @@ poseParser poses =
     P.succeed (\note pose loop -> loop (Dict.insert note pose poses))
         |= noteParser
         |. P.spaces
-        |= P.loop neutral partParser
+        |= P.loop neutralPose partParser
         |. P.spaces
         |= P.oneOf [ P.succeed P.Done |. P.end, P.succeed P.Loop ]
 
@@ -405,23 +360,65 @@ noMove =
 -- MIDI STUFF
 
 
-applyMidi : List Int -> Model -> Model
-applyMidi data ({ dance } as model) =
-    let
-        command =
-            List.head data
-                |> Maybe.map (Bitwise.shiftRightBy 4)
-    in
-    case ( command, data ) of
-        ( _, [ 248 ] ) ->
-            { model | clock = updateClock model.time model.clock }
+type alias Clock =
+    { index : Int
+    , last : Float
+    , samples : Array Float
+    , averageMillis : Float
+    }
 
-        ( Just 8, [ _, midinote, _ ] ) ->
+
+initialClock : Clock
+initialClock =
+    clockFromSamples 0 0 Array.empty
+
+
+clockFromSamples : Float -> Int -> Array Float -> Clock
+clockFromSamples last index samples =
+    Clock index last samples <|
+        case Array.length samples of
+            0 ->
+                1000
+
+            n ->
+                24 * Array.foldl (+) 0 samples / toFloat n
+
+
+samplesToKeep : Int
+samplesToKeep =
+    24 * 4 * 4
+
+
+applyMidi : Float -> List Int -> Model -> Model
+applyMidi time data ({ dance } as model) =
+    case data of
+        -- CLOCK
+        [ 248 ] ->
+            let
+                newClock =
+                    updateClock time model.clock
+
+                newDance =
+                    if
+                        progress time newClock.averageMillis
+                            > progress model.clock.last newClock.averageMillis
+                    then
+                        dance
+                    else
+                        { dance | prev = dance.next, next = nextPose model.lastNote dance }
+            in
+            { model | dance = newDance, clock = newClock }
+
+        -- NOTE ON CH1
+        [ 128, midinote, velocity ] ->
             case Array.get (modBy 12 midinote) notes of
                 Nothing ->
                     model
 
                 Just note ->
+                    -- TODO
+                    -- Try to change dance.{prev,next} if time is close enough to clock.last
+                    -- How do I base timing off of notes _and_ clock? (should stay synced after hitting stop/play)
                     { model | lastNote = note }
 
         _ ->
@@ -431,28 +428,14 @@ applyMidi data ({ dance } as model) =
 updateClock : Float -> Clock -> Clock
 updateClock time clock =
     let
-        clockHistory =
-            Array.set clock.index time clock.history
+        diff =
+            time - clock.last
     in
-    { history =
-        clockHistory
-    , index =
-        modBy (Array.length clockHistory) (clock.index + 1)
-    , diffPerBeat =
-        sumDiffs 0 (Array.toList clockHistory)
-            * 6
-            / toFloat (Array.length clockHistory - 1)
-    }
-
-
-sumDiffs : Float -> List Float -> Float
-sumDiffs acc list =
-    case list of
-        a :: ((b :: _) as rest) ->
-            sumDiffs (acc + abs (b - a)) rest
-
-        _ ->
-            acc
+    if Array.length clock.samples < samplesToKeep then
+        clockFromSamples time clock.index (Array.push diff clock.samples)
+    else
+        clockFromSamples time (clock.index + 1) <|
+            Array.set (modBy samplesToKeep clock.index) diff clock.samples
 
 
 notes : Array String
@@ -460,7 +443,7 @@ notes =
     Array.fromList [ "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" ]
 
 
-port midiMessage : (List Int -> msg) -> Sub msg
+port midiMessage : (( Float, List Int ) -> msg) -> Sub msg
 
 
 
@@ -656,7 +639,7 @@ curveVector model a b =
 
 curve : Model -> (a -> Quantity Float b) -> a -> a -> Float
 curve model unwrap a b =
-    cubicBezier (progress model.time model.clock.diffPerBeat)
+    cubicBezier (progress model.clock.last model.clock.averageMillis)
         (unQuantity (unwrap a))
         (unQuantity (unwrap b))
 
