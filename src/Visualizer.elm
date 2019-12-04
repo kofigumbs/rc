@@ -8,7 +8,9 @@ import Bitwise
 import Browser
 import Browser.Events
 import Camera3d
+import Char
 import Color
+import Dict exposing (Dict)
 import Direction3d exposing (Direction3d)
 import Html exposing (Html)
 import Html.Attributes
@@ -45,19 +47,18 @@ main =
 
 type alias Model =
     { time : Float
-    , tick : Int
     , width : Float
     , height : Float
     , dance : Dance
     , clock : Clock
-    , channels : Array ( Int, Int, Float )
+    , lastNote : String
     }
 
 
 type alias Dance =
     { error : Bool
     , code : String
-    , plan : Array Pose
+    , plan : Dict String Pose
     , prev : Pose
     , next : Pose
     }
@@ -82,7 +83,7 @@ init flags =
                 defaultDance
             else
                 case P.run hashParser flags.hash of
-                    Err _ ->
+                    Err reason ->
                         defaultDance
 
                     Ok (Ok loadedDance) ->
@@ -92,12 +93,11 @@ init flags =
                         { defaultDance | error = True, code = code }
     in
     ( { time = 0
-      , tick = 1
       , width = flags.width
       , height = flags.height
       , dance = dance
-      , clock = Clock 350 0 (Array.initialize 24 (toFloat >> (*) 350))
-      , channels = Array.repeat 8 ( 0, 0, 0 )
+      , clock = Clock 0 0 (Array.repeat 72 0)
+      , lastNote = ""
       }
     , Cmd.none
     )
@@ -118,29 +118,24 @@ update msg ({ dance } as model) =
                 newTime =
                     model.time + diff
 
-                newTick =
-                    model.tick + 1
+                newDance =
+                    if
+                        progress newTime model.clock.diffPerBeat
+                            > progress model.time model.clock.diffPerBeat
+                    then
+                        dance
+                    else
+                        { dance | prev = dance.next, next = nextPose model.lastNote dance }
             in
-            if newTime <= model.clock.diffPerBeat then
-                pure { model | time = newTime }
-            else
-                pure
-                    { model
-                        | time = decrementAsMuchAsPossible model.clock.diffPerBeat newTime
-                        , tick = newTick
-                        , dance =
-                            { dance
-                                | prev = dance.next
-                                , next = safeModeGet newTick dance.plan |> Maybe.withDefault dance.prev
-                            }
-                    }
+            pure
+                { model | time = newTime, dance = newDance }
 
         Resize width height ->
             pure { model | width = toFloat width, height = toFloat height }
 
         SetCode code ->
             case P.run planParser code of
-                Err _ ->
+                Err reason ->
                     pure { model | dance = { dance | error = True, code = code } }
 
                 Ok plan ->
@@ -152,20 +147,9 @@ update msg ({ dance } as model) =
             pure (applyMidi data model)
 
 
-{-| Sometimes we need to subtract more than once if the window has been un-focused for a while.
-Otherwise, the next few `Diff` messages will be very large numbers.
--}
-decrementAsMuchAsPossible : number -> number -> number
-decrementAsMuchAsPossible interval n =
-    if interval > n then
-        n
-    else
-        decrementAsMuchAsPossible interval (n - interval)
-
-
-safeModeGet : Int -> Array a -> Maybe a
-safeModeGet index array =
-    Array.get (modBy (max 1 (Array.length array)) index) array
+nextPose : String -> Dance -> Pose
+nextPose note dance =
+    Dict.get note dance.plan |> Maybe.withDefault dance.next
 
 
 port setHash : String -> Cmd msg
@@ -211,14 +195,14 @@ defaultDance =
     let
         code =
             String.trimLeft """
+C
 leftarm   down 0.15  left 0.15   back 1
 rightarm  forward 1  pitch -15
 rightleg  pitch 30
 head      left 0.2
 torso     left 0.2   roll 5
 
--
-
+G
 rightarm  down 0.15  right 0.15  back 1
 leftarm   forward 1  pitch -15
 leftleg   pitch 30
@@ -248,7 +232,7 @@ torso     right 0.2  roll -5
     , code = code
     , prev = prev
     , next = next
-    , plan = Array.fromList [ prev, next ]
+    , plan = Dict.fromList [ ( "C", prev ), ( "G", next ) ]
     }
 
 
@@ -272,8 +256,8 @@ hashParser =
         |> P.andThen
             (\x ->
                 case Base64.decode x of
-                    Err error ->
-                        P.problem error
+                    Err reason ->
+                        P.problem reason
 
                     Ok code ->
                         P.run danceParser code
@@ -287,11 +271,16 @@ danceParser =
     P.succeed
         (\code plan ->
             let
-                prev =
-                    Array.get 0 plan |> Maybe.withDefault neutral
+                ( prev, next ) =
+                    case Dict.values plan of
+                        a :: b :: _ ->
+                            ( a, b )
 
-                next =
-                    Array.get 1 plan |> Maybe.withDefault prev
+                        [ one ] ->
+                            ( one, one )
+
+                        [] ->
+                            ( neutral, neutral )
             in
             { error = False, code = code, prev = prev, next = next, plan = plan }
         )
@@ -299,21 +288,32 @@ danceParser =
         |= planParser
 
 
-planParser : P.Parser (Array Pose)
+planParser : P.Parser (Dict String Pose)
 planParser =
-    P.loop Array.empty poseParser
+    P.succeed identity
+        |. P.spaces
+        |= P.loop Dict.empty poseParser
 
 
-poseParser : Array Pose -> P.Parser (P.Step (Array Pose) (Array Pose))
+poseParser : Dict String Pose -> P.Parser (P.Step (Dict String Pose) (Dict String Pose))
 poseParser poses =
-    P.succeed (|>)
+    P.succeed (\note pose loop -> loop (Dict.insert note pose poses))
+        |= noteParser
         |. P.spaces
         |= P.loop neutral partParser
         |. P.spaces
-        |= P.oneOf
-            [ P.succeed (\x -> P.Done (Array.push x poses)) |. P.end
-            , P.succeed (\x -> P.Loop (Array.push x poses)) |. break
-            ]
+        |= P.oneOf [ P.succeed P.Done |. P.end, P.succeed P.Loop ]
+
+
+noteParser : P.Parser String
+noteParser =
+    let
+        isNote code =
+            65 <= code && code <= 71
+    in
+    P.chompIf (isNote << Char.toCode)
+        |. P.oneOf [ P.symbol "#", P.succeed () ]
+        |> P.getChompedString
 
 
 partParser : Pose -> P.Parser (P.Step Pose Pose)
@@ -406,44 +406,43 @@ noMove =
 
 
 applyMidi : List Int -> Model -> Model
-applyMidi data model =
+applyMidi data ({ dance } as model) =
     let
         command =
             List.head data
                 |> Maybe.map (Bitwise.shiftRightBy 4)
     in
     case ( command, data ) of
-        ( Just 8, [ status, note, velocity ] ) ->
-            let
-                channel =
-                    Bitwise.and 0x07 status
-
-                ( _, old, _ ) =
-                    Array.get channel model.channels
-                        |> Maybe.withDefault ( 0, 0, 0 )
-            in
-            { model | channels = Array.set channel ( old, (modBy 12 note - 6) * 10, model.time ) model.channels }
-
         ( _, [ 248 ] ) ->
-            let
-                clockHistory =
-                    Array.set model.clock.index model.time model.clock.history
-            in
-            { model
-                | clock =
-                    { history =
-                        clockHistory
-                    , index =
-                        modBy (Array.length clockHistory) (model.clock.index + 1)
-                    , diffPerBeat =
-                        sumDiffs 0 (Array.toList clockHistory)
-                            * 6
-                            / toFloat (Array.length clockHistory - 1)
-                    }
-            }
+            { model | clock = updateClock model.time model.clock }
+
+        ( Just 8, [ _, midinote, _ ] ) ->
+            case Array.get (modBy 12 midinote) notes of
+                Nothing ->
+                    model
+
+                Just note ->
+                    { model | lastNote = note }
 
         _ ->
             model
+
+
+updateClock : Float -> Clock -> Clock
+updateClock time clock =
+    let
+        clockHistory =
+            Array.set clock.index time clock.history
+    in
+    { history =
+        clockHistory
+    , index =
+        modBy (Array.length clockHistory) (clock.index + 1)
+    , diffPerBeat =
+        sumDiffs 0 (Array.toList clockHistory)
+            * 6
+            / toFloat (Array.length clockHistory - 1)
+    }
 
 
 sumDiffs : Float -> List Float -> Float
@@ -454,6 +453,11 @@ sumDiffs acc list =
 
         _ ->
             acc
+
+
+notes : Array String
+notes =
+    Array.fromList [ "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" ]
 
 
 port midiMessage : (List Int -> msg) -> Sub msg
@@ -468,11 +472,10 @@ view model =
     Html.main_ []
         [ viewSubject model
         , Html.textarea
-            [ Html.Attributes.autofocus True
+            [ Html.Events.onInput SetCode
+            , Html.Attributes.autofocus True
             , Html.Attributes.spellcheck False
-            , Html.Events.onInput SetCode
             , Html.Attributes.classList [ ( "error", model.dance.error ) ]
-            , Html.Attributes.style "width" (String.fromInt (floor model.width // 3) ++ "px")
             ]
             [ Html.text model.dance.code ]
         ]
@@ -509,7 +512,7 @@ viewSubject model =
     in
     Scene3d.render [ Scene3d.clearColor Color.darkPurple ]
         { camera = camera
-        , width = Pixels.pixels (model.width * 2 / 3)
+        , width = Pixels.pixels model.width
         , height = Pixels.pixels model.height
         , ambientLighting = Just ambientLighting
         , lights = Scene3d.oneLight sunlight { castsShadows = False }
@@ -653,7 +656,9 @@ curveVector model a b =
 
 curve : Model -> (a -> Quantity Float b) -> a -> a -> Float
 curve model unwrap a b =
-    cubicBezier (model.time / model.clock.diffPerBeat) (unQuantity (unwrap a)) (unQuantity (unwrap b))
+    cubicBezier (progress model.time model.clock.diffPerBeat)
+        (unQuantity (unwrap a))
+        (unQuantity (unwrap b))
 
 
 cubicBezier : Float -> Float -> Float -> Float
@@ -675,6 +680,15 @@ cubicBezier t p0 p3 =
         + (p1 * 3 * ((1 - t) ^ 2) * t)
         + (p2 * 3 * (1 - t) * (t ^ 2))
         + (p3 * (t ^ 3))
+
+
+progress : Float -> Float -> Float
+progress time step =
+    let
+        ratio =
+            time / step
+    in
+    ratio - toFloat (floor ratio)
 
 
 unQuantity : Quantity number a -> number
