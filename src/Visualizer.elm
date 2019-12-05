@@ -50,7 +50,7 @@ type alias Model =
     , height : Float
     , dance : Dance
     , clock : Clock
-    , lastNote : String
+    , noteEnd : Float
     }
 
 
@@ -79,7 +79,7 @@ init flags =
       , height = flags.height
       , dance = dance
       , clock = initialClock
-      , lastNote = ""
+      , noteEnd = 0
       }
     , Cmd.none
     )
@@ -97,8 +97,8 @@ update msg ({ dance } as model) =
         Resize width height ->
             pure { model | width = toFloat width, height = toFloat height }
 
-        GotMidiMessage ( time, data ) ->
-            pure (applyMidi time data model)
+        GotMidiMessage ( now, data ) ->
+            pure (applyMidi now data model)
 
         SetCode code ->
             case P.run planParser code of
@@ -357,14 +357,14 @@ noMove =
 
 
 
--- MIDI STUFF
+-- MIDI CLOCK
 
 
 type alias Clock =
     { index : Int
-    , last : Float
+    , lastUpdated : Float
     , samples : Array Float
-    , averageMillis : Float
+    , quarterNote : Float
     }
 
 
@@ -374,14 +374,14 @@ initialClock =
 
 
 clockFromSamples : Float -> Int -> Array Float -> Clock
-clockFromSamples last index samples =
-    Clock index last samples <|
+clockFromSamples lastUpdated index samples =
+    Clock index lastUpdated samples <|
         case Array.length samples of
             0 ->
                 1000
 
             n ->
-                24 * Array.foldl (+) 0 samples / toFloat n
+                6 * Array.foldl (+) 0 samples / toFloat n
 
 
 samplesToKeep : Int
@@ -390,51 +390,38 @@ samplesToKeep =
 
 
 applyMidi : Float -> List Int -> Model -> Model
-applyMidi time data ({ dance } as model) =
+applyMidi now data ({ dance } as model) =
     case data of
         -- CLOCK
         [ 248 ] ->
-            let
-                newClock =
-                    updateClock time model.clock
+            { model | clock = updateClock now model.clock }
 
-                newDance =
-                    if
-                        progress time newClock.averageMillis
-                            > progress model.clock.last newClock.averageMillis
-                    then
-                        dance
-                    else
-                        { dance | prev = dance.next, next = nextPose model.lastNote dance }
-            in
-            { model | dance = newDance, clock = newClock }
-
-        -- NOTE ON CH1
-        [ 128, midinote, velocity ] ->
+        -- NOTE ON
+        [ _, midinote, 100 ] ->
             case Array.get (modBy 12 midinote) notes of
                 Nothing ->
                     model
 
                 Just note ->
-                    -- TODO
-                    -- Try to change dance.{prev,next} if time is close enough to clock.last
-                    -- How do I base timing off of notes _and_ clock? (should stay synced after hitting stop/play)
-                    { model | lastNote = note }
+                    { model
+                        | noteEnd = now + model.clock.quarterNote
+                        , dance = { dance | prev = dance.next, next = nextPose note dance }
+                    }
 
         _ ->
             model
 
 
 updateClock : Float -> Clock -> Clock
-updateClock time clock =
+updateClock now clock =
     let
         diff =
-            time - clock.last
+            now - clock.lastUpdated
     in
     if Array.length clock.samples < samplesToKeep then
-        clockFromSamples time clock.index (Array.push diff clock.samples)
+        clockFromSamples now clock.index (Array.push diff clock.samples)
     else
-        clockFromSamples time (clock.index + 1) <|
+        clockFromSamples now (clock.index + 1) <|
             Array.set (modBy samplesToKeep clock.index) diff clock.samples
 
 
@@ -629,19 +616,22 @@ animate model drawable part =
         |> Drawable.translateBy translation
 
 
-curveVector : Model -> Vector3d Length.Meters () -> Vector3d Length.Meters () -> Vector3d Length.Meters ()
+curveVector : Model -> Vector3d Length.Meters a -> Vector3d Length.Meters a -> Vector3d Length.Meters a
 curveVector model a b =
     Vector3d.meters
-        (curve model Vector3d.xComponent a b)
-        (curve model Vector3d.yComponent a b)
-        (curve model Vector3d.zComponent a b)
+        (curve model (Vector3d.xComponent a) (Vector3d.xComponent b))
+        (curve model (Vector3d.yComponent a) (Vector3d.yComponent b))
+        (curve model (Vector3d.zComponent a) (Vector3d.zComponent b))
 
 
-curve : Model -> (a -> Quantity Float b) -> a -> a -> Float
-curve model unwrap a b =
-    cubicBezier (progress model.clock.last model.clock.averageMillis)
-        (unQuantity (unwrap a))
-        (unQuantity (unwrap b))
+curve : Model -> Quantity Float a -> Quantity Float a -> Float
+curve model a b =
+    let
+        t =
+            clamp 0 1 <|
+                ((model.noteEnd - model.clock.lastUpdated) / model.clock.quarterNote)
+    in
+    cubicBezier (1 - t) (unQuantity a) (unQuantity b)
 
 
 cubicBezier : Float -> Float -> Float -> Float
@@ -663,15 +653,6 @@ cubicBezier t p0 p3 =
         + (p1 * 3 * ((1 - t) ^ 2) * t)
         + (p2 * 3 * (1 - t) * (t ^ 2))
         + (p3 * (t ^ 3))
-
-
-progress : Float -> Float -> Float
-progress time step =
-    let
-        ratio =
-            time / step
-    in
-    ratio - toFloat (floor ratio)
 
 
 unQuantity : Quantity number a -> number
