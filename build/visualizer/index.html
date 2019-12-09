@@ -8,6 +8,8 @@
     * {
       margin: 0;
       padding: 0;
+      border: none;
+      outline: none;
     }
 
     main {
@@ -21,14 +23,16 @@
       left: 0;
       height: 100%;
       width: 100%;
-      resize: none;
-      white-space: pre;
+
+      padding: 32px;
       font-size: 16px;
       font-family: monospace;
       color: white;
       background-color: transparent;
-      border: solid transparent 32px;
-      outline: none;
+
+      resize: none;
+      white-space: pre;
+      box-sizing: border-box;
     }
 
     .error {

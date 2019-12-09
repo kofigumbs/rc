@@ -4,7 +4,6 @@ import Angle exposing (Angle)
 import Array exposing (Array)
 import Axis3d exposing (Axis3d)
 import Base64
-import Bitwise
 import Browser
 import Browser.Events
 import Camera3d
@@ -16,7 +15,6 @@ import Html exposing (Html)
 import Html.Attributes
 import Html.Events
 import Illuminance
-import Json.Encode as E
 import Length exposing (Length)
 import Luminance
 import Parser as P exposing ((|.), (|=))
@@ -30,7 +28,6 @@ import Scene3d.Exposure
 import Scene3d.Light
 import Scene3d.Mesh as Mesh exposing (Mesh)
 import Scene3d.Shape as Shape
-import Time
 import Vector3d exposing (Vector3d)
 import Viewpoint3d
 
@@ -334,11 +331,6 @@ moveKeywordParser =
         |= P.oneOf [ P.succeed negate |. P.symbol "-" |= P.float, P.float ]
 
 
-break : P.Parser ()
-break =
-    P.chompIf (\x -> x == '-')
-
-
 merge : Move -> Move -> Move
 merge a b =
     { rotate = Vector3d.plus a.rotate b.rotate
@@ -370,18 +362,13 @@ type alias Clock =
 
 initialClock : Clock
 initialClock =
-    clockFromSamples 0 0 Array.empty
+    Clock 0 0 Array.empty 1000
 
 
 clockFromSamples : Float -> Int -> Array Float -> Clock
 clockFromSamples lastUpdated index samples =
     Clock index lastUpdated samples <|
-        case Array.length samples of
-            0 ->
-                1000
-
-            n ->
-                6 * Array.foldl (+) 0 samples / toFloat n
+        (6 * Array.foldl (+) 0 samples / toFloat (Array.length samples))
 
 
 samplesToKeep : Int
