@@ -1,4 +1,4 @@
-port module Visualizer exposing (main)
+port module Visualizer exposing (danceParser, main)
 
 import Angle exposing (Angle)
 import Array exposing (Array)
@@ -8,7 +8,7 @@ import Browser
 import Browser.Events
 import Camera3d
 import Char
-import Color
+import Color exposing (Color)
 import Dict exposing (Dict)
 import Direction3d exposing (Direction3d)
 import Html exposing (Html)
@@ -17,6 +17,8 @@ import Html.Events
 import Illuminance
 import Length exposing (Length)
 import Luminance
+import Math.Vector2 exposing (Vec2, vec2)
+import Math.Vector4 exposing (Vec4, vec4)
 import Parser as P exposing ((|.), (|=))
 import Pixels
 import Point3d
@@ -30,6 +32,7 @@ import Scene3d.Mesh as Mesh exposing (Mesh)
 import Scene3d.Shape as Shape
 import Vector3d exposing (Vector3d)
 import Viewpoint3d
+import WebGL
 
 
 main : Program Flags Model Msg
@@ -149,12 +152,14 @@ type alias Pose =
     , rightArm : Move
     , leftLeg : Move
     , rightLeg : Move
+    , camera : Move
     }
 
 
 type alias Move =
     { rotate : Vector3d Length.Meters ()
     , translate : Vector3d Length.Meters ()
+    , fill : Color
     }
 
 
@@ -196,6 +201,7 @@ neutralPose =
     , rightArm = noMove
     , leftLeg = noMove
     , rightLeg = noMove
+    , camera = { noMove | translate = Vector3d.meters 0 2 -16, rotate = Vector3d.zero }
     }
 
 
@@ -292,6 +298,7 @@ partKeywordParser =
         , P.succeed (\x a -> { a | rightArm = merge a.rightArm x }) |. P.keyword "rightarm"
         , P.succeed (\x a -> { a | leftLeg = merge a.leftLeg x }) |. P.keyword "leftleg"
         , P.succeed (\x a -> { a | rightLeg = merge a.rightLeg x }) |. P.keyword "rightleg"
+        , P.succeed (\x a -> { a | camera = merge a.camera x }) |. P.keyword "camera"
         ]
 
 
@@ -317,6 +324,8 @@ moveKeywordParser =
                 , P.succeed Direction3d.y |. P.keyword "yaw"
                 , P.succeed Direction3d.z |. P.keyword "roll"
                 ]
+            |. P.spaces
+            |= numberParser
         , P.succeed (\dir x -> { noMove | translate = vectorIn dir x })
             |= P.oneOf
                 [ P.succeed Direction3d.positiveY |. P.keyword "up"
@@ -326,15 +335,38 @@ moveKeywordParser =
                 , P.succeed Direction3d.positiveZ |. P.keyword "forward"
                 , P.succeed Direction3d.negativeZ |. P.keyword "back"
                 ]
+            |. P.spaces
+            |= numberParser
+        , P.succeed (\x -> { noMove | fill = x })
+            |. P.keyword "fill"
+            |. P.spaces
+            |= P.oneOf
+                [ P.succeed Color.darkRed |. P.keyword "red"
+                , P.succeed Color.darkOrange |. P.keyword "orange"
+                , P.succeed Color.darkYellow |. P.keyword "yellow"
+                , P.succeed Color.darkGreen |. P.keyword "green"
+                , P.succeed Color.darkBlue |. P.keyword "blue"
+                , P.succeed Color.darkPurple |. P.keyword "purple"
+                , P.succeed Color.darkBrown |. P.keyword "brown"
+                , P.succeed Color.black |. P.keyword "black"
+                ]
         ]
-        |. P.spaces
-        |= P.oneOf [ P.succeed negate |. P.symbol "-" |= P.float, P.float ]
+
+
+numberParser : P.Parser Float
+numberParser =
+    P.oneOf [ P.succeed negate |. P.symbol "-" |= P.float, P.float ]
 
 
 merge : Move -> Move -> Move
 merge a b =
     { rotate = Vector3d.plus a.rotate b.rotate
     , translate = Vector3d.plus a.translate b.translate
+    , fill =
+        if b.fill == Color.black then
+            a.fill
+        else
+            b.fill
     }
 
 
@@ -345,7 +377,10 @@ vectorIn dir length =
 
 noMove : Move
 noMove =
-    Move Vector3d.zero Vector3d.zero
+    { rotate = Vector3d.zero
+    , translate = Vector3d.zero
+    , fill = Color.black
+    }
 
 
 
@@ -421,7 +456,7 @@ port midiMessage : (( Float, List Int ) -> msg) -> Sub msg
 
 
 
--- RENDER
+-- HTML
 
 
 view : Model -> Html Msg
@@ -441,10 +476,21 @@ view model =
 viewSubject : Model -> Html msg
 viewSubject model =
     let
+        diff =
+            curveVector model
+                model.dance.prev.camera.translate
+                model.dance.next.camera.translate
+
+        eyePoint =
+            Point3d.xyz
+                (Vector3d.xComponent diff)
+                (Vector3d.yComponent diff)
+                (Quantity.negate (Vector3d.zComponent diff))
+
         viewpoint =
             Viewpoint3d.lookAt
                 { focalPoint = Point3d.meters 0 -2 0
-                , eyePoint = Point3d.meters 0 2 16
+                , eyePoint = eyePoint
                 , upDirection = Direction3d.y
                 }
 
@@ -455,7 +501,7 @@ viewSubject model =
                 , clipDepth = Length.meters 0.1
                 }
 
-        sunlight =
+        light =
             Scene3d.Light.directional Scene3d.Chromaticity.daylight
                 (Illuminance.lux 10000)
                 (Direction3d.zxY (Angle.degrees 45) (Angle.degrees 195))
@@ -467,31 +513,98 @@ viewSubject model =
                 , zenithLuminance = Luminance.nits 5000
                 }
     in
-    Scene3d.render [ Scene3d.clearColor Color.darkPurple ]
-        { camera = camera
-        , width = Pixels.pixels model.width
-        , height = Pixels.pixels model.height
-        , ambientLighting = Just ambientLighting
-        , lights = Scene3d.oneLight sunlight { castsShadows = False }
-        , exposure = Scene3d.Exposure.fromMaxLuminance (Luminance.nits 10000)
-        , whiteBalance = Scene3d.Chromaticity.daylight
-        }
-        [ animate model head .head
-        , animate model torso.drawable .torso
-            |> torso.translation
-        , animate model arm.drawable .leftArm
-            |> arm.translation
-            |> Drawable.translateIn Direction3d.negativeX armOffset
-        , animate model arm.drawable .rightArm
-            |> arm.translation
-            |> Drawable.translateIn Direction3d.positiveX armOffset
-        , animate model leg.drawable .leftLeg
-            |> leg.translation
-            |> Drawable.translateIn Direction3d.negativeX legOffset
-        , animate model leg.drawable .rightLeg
-            |> leg.translation
-            |> Drawable.translateIn Direction3d.positiveX legOffset
+    WebGL.toHtmlWith []
+        [ Html.Attributes.width (round model.width)
+        , Html.Attributes.height (round model.height)
+        , Html.Attributes.style "width" (String.fromFloat model.width ++ "px")
+        , Html.Attributes.style "height" (String.fromFloat model.height ++ "px")
+        , Html.Attributes.style "display" "block"
         ]
+    <|
+        backgroundEntity model
+            :: Scene3d.toEntities []
+                { camera = camera
+                , width = Pixels.pixels model.width
+                , height = Pixels.pixels model.height
+                , ambientLighting = Just ambientLighting
+                , lights = Scene3d.oneLight light { castsShadows = False }
+                , exposure = Scene3d.Exposure.fromMaxLuminance (Luminance.nits 10000)
+                , whiteBalance = Scene3d.Chromaticity.daylight
+                }
+                [ animate model head .head
+                , animate model torso.drawable .torso
+                    |> torso.translation
+                , animate model arm.drawable .leftArm
+                    |> arm.translation
+                    |> Drawable.translateIn Direction3d.negativeX armOffset
+                , animate model arm.drawable .rightArm
+                    |> arm.translation
+                    |> Drawable.translateIn Direction3d.positiveX armOffset
+                , animate model leg.drawable .leftLeg
+                    |> leg.translation
+                    |> Drawable.translateIn Direction3d.negativeX legOffset
+                , animate model leg.drawable .rightLeg
+                    |> leg.translation
+                    |> Drawable.translateIn Direction3d.positiveX legOffset
+                ]
+
+
+
+-- BACKGROUND
+
+
+backgroundEntity : Model -> WebGL.Entity
+backgroundEntity model =
+    WebGL.entity vertexShader fragmentShader mesh <|
+        { backgroundColor =
+            let
+                prev =
+                    Color.toRgba model.dance.prev.camera.fill
+
+                next =
+                    Color.toRgba model.dance.next.camera.fill
+            in
+            vec4
+                (curve model prev.red next.red)
+                (curve model prev.green next.green)
+                (curve model prev.blue next.blue)
+                (curve model prev.alpha next.alpha)
+        }
+
+
+vertex : Float -> Float -> { position : Vec2 }
+vertex x y =
+    { position = vec2 x y }
+
+
+mesh : WebGL.Mesh { position : Vec2 }
+mesh =
+    WebGL.triangles
+        [ ( vertex -1 -1, vertex 1 -1, vertex 1 1 )
+        , ( vertex -1 -1, vertex 1 1, vertex -1 1 )
+        ]
+
+
+vertexShader : WebGL.Shader { position : Vec2 } { backgroundColor : Vec4 } {}
+vertexShader =
+    [glsl|
+        precision mediump float;
+        attribute vec2 position;
+        void main() { gl_Position = vec4(position.x, position.y, 0.0, 1.0); }
+    |]
+
+
+fragmentShader : WebGL.Shader {} { backgroundColor : Vec4 } {}
+fragmentShader =
+    [glsl|
+        precision mediump float;
+        uniform vec4 backgroundColor;
+        void main() { gl_FragColor = backgroundColor; }
+    |]
+
+
+
+-- BODY PARTS
 
 
 head : Drawable a
@@ -606,19 +719,24 @@ animate model drawable part =
 curveVector : Model -> Vector3d Length.Meters a -> Vector3d Length.Meters a -> Vector3d Length.Meters a
 curveVector model a b =
     Vector3d.meters
-        (curve model (Vector3d.xComponent a) (Vector3d.xComponent b))
-        (curve model (Vector3d.yComponent a) (Vector3d.yComponent b))
-        (curve model (Vector3d.zComponent a) (Vector3d.zComponent b))
+        (curveQuantity model (Vector3d.xComponent a) (Vector3d.xComponent b))
+        (curveQuantity model (Vector3d.yComponent a) (Vector3d.yComponent b))
+        (curveQuantity model (Vector3d.zComponent a) (Vector3d.zComponent b))
 
 
-curve : Model -> Quantity Float a -> Quantity Float a -> Float
+curveQuantity : Model -> Quantity Float a -> Quantity Float a -> Float
+curveQuantity model a b =
+    curve model (unQuantity a) (unQuantity b)
+
+
+curve : Model -> Float -> Float -> Float
 curve model a b =
     let
         t =
             clamp 0 1 <|
                 ((model.noteEnd - model.clock.lastUpdated) / model.clock.quarterNote)
     in
-    cubicBezier (1 - t) (unQuantity a) (unQuantity b)
+    cubicBezier (1 - t) a b
 
 
 cubicBezier : Float -> Float -> Float -> Float
