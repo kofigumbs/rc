@@ -28,7 +28,7 @@ import Scene3d.Chromaticity
 import Scene3d.Drawable as Drawable exposing (Drawable, Material)
 import Scene3d.Exposure
 import Scene3d.Light
-import Scene3d.Mesh as Mesh exposing (Mesh)
+import Scene3d.Mesh as Mesh
 import Scene3d.Shape as Shape
 import Vector3d exposing (Vector3d)
 import Viewpoint3d
@@ -152,7 +152,7 @@ type alias Pose =
     , rightArm : Move
     , leftLeg : Move
     , rightLeg : Move
-    , camera : Move
+    , scene : Move
     }
 
 
@@ -169,18 +169,25 @@ defaultDance =
         code =
             String.trimLeft """
 C
-leftarm   down 0.15  left 0.15   back 1
-rightarm  forward 1  pitch -375
-rightleg  pitch 30
 head      left 0.2
-torso     left 0.2   roll 5
+torso     left 0.2     roll 5
+leftarm   down 0.15    left 0.15   back 1
+rightarm  forward 1    pitch -15
+rightleg  pitch 30
+scene     fill blue    back 10
 
 G
-rightarm  down 0.15  right 0.15  back 1
-leftarm   forward 1  pitch -375
-leftleg   pitch 30
 head      right 0.2
-torso     right 0.2  roll -5
+torso     right 0.2    roll -5
+rightarm  down 0.15    right 0.15  back 1
+leftarm   forward 1    pitch -15
+leftleg   pitch 30
+scene     fill purple  back 5
+
+A
+head      up 0.5       fill green
+leftarm   up 1         left .5    roll 30
+rightarm  up 1         right .5   roll -30
 """
     in
     P.run danceParser code
@@ -201,7 +208,7 @@ neutralPose =
     , rightArm = noMove
     , leftLeg = noMove
     , rightLeg = noMove
-    , camera = { noMove | translate = Vector3d.meters 0 2 -16, rotate = Vector3d.zero }
+    , scene = { noMove | translate = Vector3d.meters 0 5 -20, fill = Color.black }
     }
 
 
@@ -298,7 +305,7 @@ partKeywordParser =
         , P.succeed (\x a -> { a | rightArm = merge a.rightArm x }) |. P.keyword "rightarm"
         , P.succeed (\x a -> { a | leftLeg = merge a.leftLeg x }) |. P.keyword "leftleg"
         , P.succeed (\x a -> { a | rightLeg = merge a.rightLeg x }) |. P.keyword "rightleg"
-        , P.succeed (\x a -> { a | camera = merge a.camera x }) |. P.keyword "camera"
+        , P.succeed (\x a -> { a | scene = merge a.scene x }) |. P.keyword "scene"
         ]
 
 
@@ -348,7 +355,6 @@ moveKeywordParser =
                 , P.succeed Color.darkBlue |. P.keyword "blue"
                 , P.succeed Color.darkPurple |. P.keyword "purple"
                 , P.succeed Color.darkBrown |. P.keyword "brown"
-                , P.succeed Color.black |. P.keyword "black"
                 ]
         ]
 
@@ -363,7 +369,7 @@ merge a b =
     { rotate = Vector3d.plus a.rotate b.rotate
     , translate = Vector3d.plus a.translate b.translate
     , fill =
-        if b.fill == Color.black then
+        if b.fill == Color.white then
             a.fill
         else
             b.fill
@@ -379,7 +385,7 @@ noMove : Move
 noMove =
     { rotate = Vector3d.zero
     , translate = Vector3d.zero
-    , fill = Color.black
+    , fill = Color.white
     }
 
 
@@ -478,8 +484,8 @@ viewSubject model =
     let
         diff =
             curveVector model
-                model.dance.prev.camera.translate
-                model.dance.next.camera.translate
+                model.dance.prev.scene.translate
+                model.dance.next.scene.translate
 
         eyePoint =
             Point3d.xyz
@@ -555,38 +561,33 @@ viewSubject model =
 
 backgroundEntity : Model -> WebGL.Entity
 backgroundEntity model =
-    WebGL.entity vertexShader fragmentShader mesh <|
+    WebGL.entity backgroundVertexShader backgroundFragmentShader backgroundMesh <|
         { backgroundColor =
             let
-                prev =
-                    Color.toRgba model.dance.prev.camera.fill
-
-                next =
-                    Color.toRgba model.dance.next.camera.fill
+                { red, green, blue, alpha } =
+                    Color.toRgba <|
+                        curveColor model
+                            model.dance.prev.scene.fill
+                            model.dance.next.scene.fill
             in
-            vec4
-                (curve model prev.red next.red)
-                (curve model prev.green next.green)
-                (curve model prev.blue next.blue)
-                (curve model prev.alpha next.alpha)
+            vec4 red green blue alpha
         }
 
 
-vertex : Float -> Float -> { position : Vec2 }
-vertex x y =
-    { position = vec2 x y }
-
-
-mesh : WebGL.Mesh { position : Vec2 }
-mesh =
+backgroundMesh : WebGL.Mesh { position : Vec2 }
+backgroundMesh =
+    let
+        vertex x y =
+            { position = vec2 x y }
+    in
     WebGL.triangles
         [ ( vertex -1 -1, vertex 1 -1, vertex 1 1 )
         , ( vertex -1 -1, vertex 1 1, vertex -1 1 )
         ]
 
 
-vertexShader : WebGL.Shader { position : Vec2 } { backgroundColor : Vec4 } {}
-vertexShader =
+backgroundVertexShader : WebGL.Shader { position : Vec2 } { backgroundColor : Vec4 } {}
+backgroundVertexShader =
     [glsl|
         precision mediump float;
         attribute vec2 position;
@@ -594,8 +595,8 @@ vertexShader =
     |]
 
 
-fragmentShader : WebGL.Shader {} { backgroundColor : Vec4 } {}
-fragmentShader =
+backgroundFragmentShader : WebGL.Shader {} { backgroundColor : Vec4 } {}
+backgroundFragmentShader =
     [glsl|
         precision mediump float;
         uniform vec4 backgroundColor;
@@ -607,28 +608,43 @@ fragmentShader =
 -- BODY PARTS
 
 
-head : Drawable a
-head =
-    bodyPart <| Shape.sphere { radius = var.headRadius, subdivisions = 72 }
+type alias Mesh a =
+    Mesh.Mesh a (Mesh.Triangles Mesh.WithNormals Mesh.NoUV Mesh.NoTangents Mesh.ShadowsDisabled)
 
 
-torso : { drawable : Drawable a, translation : Drawable a -> Drawable a }
+type alias Limb a =
+    { drawable : Color -> Drawable a
+    , translation : Drawable a -> Drawable a
+    }
+
+
+head : Color -> Drawable a
+head color =
+    bodyPart color headMesh
+
+
+headMesh : Mesh a
+headMesh =
+    Shape.sphere { radius = var.headRadius, subdivisions = 72 }
+
+
+torso : Limb a
 torso =
     pill torsoRadius var.torsoLength <| Quantity.plus var.spacing var.headRadius
 
 
-arm : { drawable : Drawable a, translation : Drawable a -> Drawable a }
+arm : Limb a
 arm =
     pill var.limbRadius var.armLength <| Quantity.plus var.spacing var.headRadius
 
 
-leg : { drawable : Drawable a, translation : Drawable a -> Drawable a }
+leg : Limb a
 leg =
     pill var.limbRadius var.legLength <|
         Quantity.sum [ var.headRadius, var.spacing, var.torsoLength, var.spacing ]
 
 
-pill : Length -> Length -> Length -> { drawable : Drawable a, translation : Drawable a -> Drawable a }
+pill : Length -> Length -> Length -> Limb a
 pill radius length offset =
     let
         height =
@@ -638,27 +654,28 @@ pill radius length offset =
             Quantity.half height
 
         end =
-            bodyPart <| Shape.sphere { radius = radius, subdivisions = 72 }
+            Shape.sphere { radius = radius, subdivisions = 72 }
 
         trunk =
-            bodyPart <| Shape.cylinder { radius = radius, height = height, subdivisions = 72 }
+            Shape.cylinder { radius = radius, height = height, subdivisions = 72 }
     in
     { drawable =
-        Drawable.group
-            [ Drawable.translateIn Direction3d.negativeZ halfHeight end
-            , Drawable.translateIn Direction3d.positiveZ halfHeight end
-            , Drawable.translateIn Direction3d.negativeZ halfHeight trunk
-            ]
-            |> Drawable.rotateAround Axis3d.x (Angle.degrees 90)
+        \color ->
+            Drawable.group
+                [ Drawable.translateIn Direction3d.negativeZ halfHeight (bodyPart color end)
+                , Drawable.translateIn Direction3d.positiveZ halfHeight (bodyPart color end)
+                , Drawable.translateIn Direction3d.negativeZ halfHeight (bodyPart color trunk)
+                ]
+                |> Drawable.rotateAround Axis3d.x (Angle.degrees 90)
     , translation =
         Quantity.sum [ offset, radius, halfHeight ]
             |> Drawable.translateIn Direction3d.negativeY
     }
 
 
-bodyPart : Mesh a (Mesh.Triangles Mesh.WithNormals uv tangents shadows) -> Drawable a
-bodyPart =
-    Drawable.physical { baseColor = Color.white, roughness = 0.25, metallic = False }
+bodyPart : Color -> Mesh a -> Drawable a
+bodyPart color =
+    Drawable.physical { baseColor = color, roughness = 0.25, metallic = False }
 
 
 torsoRadius : Length
@@ -691,22 +708,25 @@ var =
 -- ANIMATE
 
 
-animate : Model -> Drawable () -> (Pose -> Move) -> Drawable ()
+animate : Model -> (Color -> Drawable ()) -> (Pose -> Move) -> Drawable ()
 animate model drawable part =
     let
-        a =
+        prev =
             part model.dance.prev
 
-        b =
+        next =
             part model.dance.next
 
         rotation =
-            curveVector model a.rotate b.rotate
+            curveVector model prev.rotate next.rotate
 
         translation =
-            curveVector model a.translate b.translate
+            curveVector model prev.translate next.translate
+
+        color =
+            curveColor model prev.fill next.fill
     in
-    drawable
+    drawable color
         |> Drawable.rotateAround
             (Vector3d.direction rotation
                 |> Maybe.withDefault Direction3d.x
@@ -714,6 +734,22 @@ animate model drawable part =
             )
             (Angle.degrees (unQuantity (Vector3d.length rotation)))
         |> Drawable.translateBy translation
+
+
+curveColor : Model -> Color -> Color -> Color
+curveColor model a b =
+    let
+        aRgba =
+            Color.toRgba a
+
+        bRgba =
+            Color.toRgba b
+    in
+    Color.rgba
+        (curve model aRgba.red bRgba.red)
+        (curve model aRgba.green bRgba.green)
+        (curve model aRgba.blue bRgba.blue)
+        (curve model aRgba.alpha bRgba.alpha)
 
 
 curveVector : Model -> Vector3d Length.Meters a -> Vector3d Length.Meters a -> Vector3d Length.Meters a
