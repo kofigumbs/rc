@@ -4,6 +4,7 @@ import Angle exposing (Angle)
 import Array exposing (Array)
 import Axis3d exposing (Axis3d)
 import Base64
+import Bitwise
 import Browser
 import Browser.Events
 import Camera3d
@@ -425,16 +426,19 @@ applyMidi now data ({ dance } as model) =
             { model | clock = updateClock now model.clock }
 
         -- NOTE ON
-        [ _, midinote, 100 ] ->
-            case Array.get (modBy 12 midinote) notes of
-                Nothing ->
-                    model
+        [ status, midinote, _ ] ->
+            if Bitwise.shiftRightBy 4 status /= 9 then
+                model
+            else
+                case Array.get (modBy 12 midinote) notes of
+                    Nothing ->
+                        model
 
-                Just note ->
-                    { model
-                        | noteEnd = now + model.clock.quarterNote
-                        , dance = { dance | prev = dance.next, next = nextPose note dance }
-                    }
+                    Just note ->
+                        { model
+                            | noteEnd = now + model.clock.quarterNote
+                            , dance = { dance | prev = dance.next, next = nextPose note dance }
+                        }
 
         _ ->
             model
