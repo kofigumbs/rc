@@ -22,6 +22,7 @@ import Math.Vector2 exposing (Vec2, vec2)
 import Math.Vector4 exposing (Vec4, vec4)
 import Parser as P exposing ((|.), (|=))
 import Pixels
+import Plane3d
 import Point3d
 import Quantity exposing (Quantity(..))
 import Scene3d
@@ -154,6 +155,7 @@ type alias Pose =
     , leftLeg : Move
     , rightLeg : Move
     , scene : Move
+    , light : Move
     }
 
 
@@ -189,6 +191,7 @@ A
 head      up 0.5       fill green
 leftarm   up 1         left .5    roll 30
 rightarm  up 1         right .5   roll -30
+light     down 1       fill green
 """
     in
     P.run danceParser code
@@ -210,6 +213,12 @@ neutralPose =
     , leftLeg = noMove
     , rightLeg = noMove
     , scene = { noMove | translate = Vector3d.meters 0 5 -20, fill = Color.black }
+    , light =
+        { noMove
+            | translate =
+                Vector3d.withLength (Length.meters 1)
+                    (Direction3d.zxY (Angle.degrees 45) (Angle.degrees 195))
+        }
     }
 
 
@@ -307,6 +316,7 @@ partKeywordParser =
         , P.succeed (\x a -> { a | leftLeg = merge a.leftLeg x }) |. P.keyword "leftleg"
         , P.succeed (\x a -> { a | rightLeg = merge a.rightLeg x }) |. P.keyword "rightleg"
         , P.succeed (\x a -> { a | scene = merge a.scene x }) |. P.keyword "scene"
+        , P.succeed (\x a -> { a | light = merge a.light x }) |. P.keyword "light"
         ]
 
 
@@ -486,16 +496,29 @@ view model =
 viewSubject : Model -> Html msg
 viewSubject model =
     let
-        diff =
+        cameraPlacement =
             curveVector model
                 model.dance.prev.scene.translate
                 model.dance.next.scene.translate
 
         eyePoint =
             Point3d.xyz
-                (Vector3d.xComponent diff)
-                (Vector3d.yComponent diff)
-                (Quantity.negate (Vector3d.zComponent diff))
+                (Vector3d.xComponent cameraPlacement)
+                (Vector3d.yComponent cameraPlacement)
+                (Quantity.negate (Vector3d.zComponent cameraPlacement))
+
+        lightColor =
+            curveColor model
+                model.dance.prev.light.fill
+                model.dance.next.light.fill
+
+        lightDirection =
+            curveVector model
+                model.dance.prev.light.translate
+                model.dance.next.light.translate
+                |> Vector3d.mirrorAcross Plane3d.zx
+                |> Vector3d.direction
+                |> Maybe.withDefault Direction3d.x
 
         viewpoint =
             Viewpoint3d.lookAt
@@ -512,9 +535,10 @@ viewSubject model =
                 }
 
         light =
-            Scene3d.Light.directional Scene3d.Chromaticity.daylight
+            Scene3d.Light.directional
+                (Scene3d.Chromaticity.fromColor lightColor)
                 (Illuminance.lux 10000)
-                (Direction3d.zxY (Angle.degrees 45) (Angle.degrees 195))
+                lightDirection
 
         ambientLighting =
             Scene3d.Light.overcast
