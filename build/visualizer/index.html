@@ -8,13 +8,19 @@
     * {
       margin: 0;
       padding: 0;
-      border: none;
       outline: none;
+      font-size: 16px;
+      font-family: monospace;
     }
 
     main {
       position: relative;
       overflow: hidden;
+    }
+
+    fieldset {
+      padding: 20px;
+      margin: 20px;
     }
 
     textarea {
@@ -23,10 +29,9 @@
       left: 0;
       height: 100%;
       width: 100%;
+      border: none;
 
       padding: 32px;
-      font-size: 16px;
-      font-family: monospace;
       color: white;
       background-color: transparent;
 
@@ -42,6 +47,15 @@
 </head>
 <body>
 <div id="elm"></div>
+<form>
+  <fieldset>
+    <legend>No MIDI? No problem!</legend>
+    <label>
+      <strong>BPM</strong>
+      <input id="bpm" type="number">
+    </label>
+  </fieldset>
+</form>
 <script src="elm.js"></script>
 <script>
   const app = Elm.Visualizer.init({
@@ -62,6 +76,18 @@
       input.onmidimessage = function(event) {
         app.ports.midiMessage.send([ event.timeStamp, Array.from(event.data) ]);
       };
+    }
+  });
+
+  // Setup manual BPM fallback
+  var intervalId;
+  window.bpm.addEventListener("input", function(event) {
+    clearInterval(intervalId);
+    const bpm = parseInt(event.target.value);
+    if (bpm) {
+      intervalId = setInterval(function() {
+        app.ports.midiMessage.send([ performance.now(), [ 248 ] ]);
+      }, 60000 / bpm);
     }
   });
 </script>
