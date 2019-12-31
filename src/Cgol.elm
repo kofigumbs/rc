@@ -137,10 +137,10 @@ view model =
             ]
         , Html.div []
             [ Html.text "Pattern: "
-            , Html.button [ Html.Events.onClick (SetPattern blinker) ] [ text "Blinker" ]
+            , Html.button [ Html.Events.onClick (SetPattern middleSpaceship) ] [ text "Spaceship" ]
             , Html.button [ Html.Events.onClick (SetPattern gun) ] [ text "Gun" ]
-            , Html.button [ Html.Events.onClick (SetPattern middleSpaceship) ] [ text "Middle Spaceship" ]
-            , Html.button [ Html.Events.onClick (SetPattern smallSpaceship) ] [ text "Small Spaceship?" ]
+            , Html.button [ Html.Events.onClick (SetPattern blinker) ] [ text "Blinker" ]
+            , Html.button [ Html.Events.onClick (SetPattern smallSpaceship) ] [ text "Mystery" ]
             ]
         , svg
             [ viewBox
