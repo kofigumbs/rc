@@ -96,7 +96,7 @@ init =
     , delta = 0
     , stepDuration = 450
     , glyph = Dot
-    , curve = Linear
+    , curve = CubicBezier
     }
 
 
@@ -112,7 +112,8 @@ view model =
     Html.main_ []
         [ Html.node "style" [] [ text styles ]
         , Html.div []
-            [ Html.input
+            [ Html.text "Speed: "
+            , Html.input
                 [ Html.Attributes.type_ "range"
                 , Html.Attributes.min "16"
                 , Html.Attributes.max "1000"
@@ -123,17 +124,20 @@ view model =
                 []
             ]
         , Html.div []
-            [ Html.button [ Html.Events.onClick (SetCurve Linear) ] [ text "Linear" ]
+            [ Html.text "Curve shape: "
             , Html.button [ Html.Events.onClick (SetCurve CubicBezier) ] [ text "Cubic Bezier" ]
+            , Html.button [ Html.Events.onClick (SetCurve Linear) ] [ text "Linear" ]
             ]
         , Html.div []
-            [ Html.button [ Html.Events.onClick (SetGlyph Dot) ] [ text "Dot" ]
+            [ Html.text "Cell shape: "
+            , Html.button [ Html.Events.onClick (SetGlyph Dot) ] [ text "Dot" ]
             , Html.button [ Html.Events.onClick (SetGlyph Star) ] [ text "Star" ]
             , Html.button [ Html.Events.onClick (SetGlyph Box) ] [ text "Box" ]
             , Html.button [ Html.Events.onClick (SetGlyph Pedal) ] [ text "Pedal" ]
             ]
         , Html.div []
-            [ Html.button [ Html.Events.onClick (SetPattern blinker) ] [ text "Blinker" ]
+            [ Html.text "Pattern: "
+            , Html.button [ Html.Events.onClick (SetPattern blinker) ] [ text "Blinker" ]
             , Html.button [ Html.Events.onClick (SetPattern gun) ] [ text "Gun" ]
             , Html.button [ Html.Events.onClick (SetPattern middleSpaceship) ] [ text "Middle Spaceship" ]
             , Html.button [ Html.Events.onClick (SetPattern smallSpaceship) ] [ text "Small Spaceship?" ]
