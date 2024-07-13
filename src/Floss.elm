@@ -139,9 +139,9 @@ head : Model -> Svg msg
 head model =
     circle
         [ fill "black"
-        , cx (p (var.startX + curve model headX))
-        , cy (p (var.startY + var.headRadius))
-        , r (p var.headRadius)
+        , cx (String.fromFloat (var.startX + curve model headX))
+        , cy (String.fromFloat (var.startY + var.headRadius))
+        , r (String.fromFloat var.headRadius)
         ]
         []
 
@@ -198,7 +198,7 @@ bodyPath d =
     Svg.path
         [ fill "black"
         , stroke "white"
-        , strokeWidth (p (2 * var.spacing))
+        , strokeWidth (String.fromFloat (2 * var.spacing))
         , Svg.Attributes.d d
         ]
         []
@@ -237,6 +237,11 @@ l x y =
 q : Float -> Float -> Float -> Float -> String
 q x0 y0 x1 y1 =
     " q" ++ p x0 ++ p y0 ++ p x1 ++ p y1
+
+
+p : Float -> String
+p float =
+    " " ++ String.fromFloat float ++ " "
 
 
 curve : Model -> List Float -> Float
@@ -279,11 +284,6 @@ cubicBezier t p0 p3 =
         + (p1 * 3 * ((1 - t) ^ 2) * t)
         + (p2 * 3 * (1 - t) * (t ^ 2))
         + (p3 * (t ^ 3))
-
-
-p : Float -> String
-p float =
-    " " ++ String.fromFloat float ++ " "
 
 
 styles : String
