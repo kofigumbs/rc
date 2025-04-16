@@ -65,7 +65,7 @@ load : Model -> ( Model, Cmd Msg )
 load model =
     let
         url =
-            baseUrl
+            "/bitmoji/"
                 ++ model.dance.comicId
                 ++ "-"
                 ++ model.userId
@@ -514,7 +514,11 @@ parseIds =
 
 parseIds_ : String -> D.Decoder ( String, String )
 parseIds_ raw =
-    if not <| String.startsWith baseUrl raw then
+    let
+        api =
+            "https://render.bitstrips.com/v2/cpanel/"
+    in
+    if not <| String.startsWith api raw then
         D.fail ""
     else
         case dropUntilUserId (String.split "-" raw) of
@@ -522,7 +526,7 @@ parseIds_ raw =
                 D.fail ""
 
             Just userId ->
-                String.dropLeft (String.length baseUrl) raw
+                String.dropLeft (String.length api) raw
                     |> String.split ("-" ++ userId)
                     |> List.head
                     |> Maybe.map (D.succeed << Tuple.pair userId)
@@ -540,11 +544,6 @@ dropUntilUserId segments =
 
         _ :: rest ->
             dropUntilUserId rest
-
-
-baseUrl : String
-baseUrl =
-    "https://render.bitstrips.com/v2/cpanel/"
 
 
 chromeExtensionUrl : String
