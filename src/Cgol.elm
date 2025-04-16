@@ -336,15 +336,16 @@ styles =
     main {
         height:100vh;
         width:100%;
-        display:flex;
+        padding:8px;
         display:flex;
         flex-direction:column;
+        box-sizing:border-box;
     }
     svg {
-        flex: 1;
+        flex:1;
     }
     * {
-        transform-style: preserve-3d;
+        transform-style:preserve-3d;
     }
     """
 
